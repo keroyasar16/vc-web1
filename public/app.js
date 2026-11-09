@@ -3413,6 +3413,50 @@ chatForm.addEventListener("submit", (event) => {
   chatInput.value = "";
 });
 
+function showInviteLinkDialog(link, inviteCode = "") {
+  const overlay = document.createElement("div");
+  overlay.style.cssText = "position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:20px";
+  const panel = document.createElement("div");
+  panel.style.cssText = "width:min(100%,480px);background:#303139;color:#fff;padding:24px;border-radius:14px;box-shadow:0 20px 60px #0008;font:14px sans-serif";
+  const heading = document.createElement("h2");
+  heading.textContent = "Davet bağlantısı";
+  heading.style.cssText = "margin:0 0 12px;font-size:20px";
+  const info = document.createElement("p");
+  info.textContent = inviteCode ? `Davet kodu: ${inviteCode}` : "Bağlantıyı arkadaşınla paylaş.";
+  info.style.cssText = "overflow-wrap:anywhere";
+  const field = document.createElement("textarea");
+  field.value = link;
+  field.readOnly = true;
+  field.setAttribute("aria-label", "Davet bağlantısı");
+  field.style.cssText = "box-sizing:border-box;width:100%;height:85px;background:#1c1d23;color:white;border:1px solid #666;border-radius:8px;padding:10px;resize:none";
+  const buttons = document.createElement("div");
+  buttons.style.cssText = "display:flex;gap:10px;justify-content:flex-end;margin-top:15px";
+  const copy = document.createElement("button");
+  copy.textContent = "Kopyala";
+  const close = document.createElement("button");
+  close.textContent = "Kapat";
+  for (const btn of [copy, close]) btn.style.cssText = "border:0;border-radius:8px;padding:10px 16px;cursor:pointer;background:#565cf5;color:#fff";
+  close.onclick = () => overlay.remove();
+  copy.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      showToast("Davet bağlantısı kopyalandı");
+      overlay.remove();
+    } catch {
+      field.focus();
+      field.select();
+      showToast("Bağlantı seçildi. Ctrl+C ile kopyalayabilirsin.");
+    }
+  };
+  overlay.addEventListener("click", (event) => { if (event.target === overlay) overlay.remove(); });
+  buttons.append(copy, close);
+  panel.append(heading, info, field, buttons);
+  overlay.append(panel);
+  document.body.append(overlay);
+  field.focus();
+  field.select();
+}
+
 async function copyServerInvite(server, channel = server.channels[0]) {
   const inviteUrl = new URL("/", location.href);
   inviteUrl.searchParams.set("invite", server.inviteCode);
@@ -3421,7 +3465,7 @@ async function copyServerInvite(server, channel = server.channels[0]) {
     await navigator.clipboard.writeText(inviteUrl.href);
     showToast("Sunucu davet bağlantısı kopyalandı");
   } catch {
-    window.prompt("Bu bağlantıyı arkadaşlarınla paylaş:", inviteUrl.href);
+    showInviteLinkDialog(inviteUrl.href, server.inviteCode);
   }
 }
 
@@ -4104,7 +4148,7 @@ document.querySelector("#copy-invite").addEventListener("click", async () => {
     await navigator.clipboard.writeText(inviteUrl.href);
     showToast("Davet bağlantısı kopyalandı");
   } catch {
-    window.prompt("Bu bağlantıyı arkadaşlarınla paylaş:", inviteUrl.href);
+    showInviteLinkDialog(inviteUrl.href);
   }
 });
 
