@@ -2558,7 +2558,9 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
     const name = (parameters.get("name") || "Misafir").trim().slice(0, 32) || "Misafir";
     const roomId = `${serverId}:${channelId}`;
     function currentChatMessages() {
-      return currentChatMessages().map((message) => {
+      return store.messages
+        .filter((message) => message.serverId === serverId && message.channelId === channelId)
+        .map((message) => {
           const sender = message.senderId
             ? store.users.find((user) => user.id === message.senderId) : null;
           return sender ? { ...message, name: sender.username, avatar: sender.avatar || "" } : message;
