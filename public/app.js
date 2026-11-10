@@ -882,6 +882,57 @@ roomCodeInput.addEventListener("input", () => {
   joinButtonLabel.textContent = roomCodeInput.value.trim() ? "Odaya katıl" : "Yeni oda oluştur";
 });
 
+const forgotPasswordButton = document.querySelector("#forgot-password-button");
+const forgotPasswordForm = document.querySelector("#forgot-password-form");
+const resetPasswordForm = document.querySelector("#reset-password-form");
+const resetToken = new URLSearchParams(window.location.search).get("reset_token");
+
+function showRecoveryForm(which) {
+  authForm.hidden = Boolean(which);
+  document.querySelector(".auth-tabs").hidden = Boolean(which);
+  forgotPasswordForm.hidden = which !== "forgot";
+  resetPasswordForm.hidden = which !== "reset";
+  forgotPasswordButton.hidden = Boolean(which);
+}
+forgotPasswordButton.addEventListener("click", () => {
+  document.querySelector("#forgot-email").value = document.querySelector("#auth-email").value.includes("@")
+    ? document.querySelector("#auth-email").value : "";
+  showRecoveryForm("forgot");
+});
+document.querySelector("#forgot-back").addEventListener("click", () => showRecoveryForm(null));
+forgotPasswordForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = forgotPasswordForm.querySelector("button[type=submit]");
+  const output = document.querySelector("#forgot-result");
+  button.disabled = true;
+  output.textContent = "Gönderiliyor...";
+  try {
+    const result = await apiRequest("/api/password/forgot", {
+      method: "POST", body: { email: document.querySelector("#forgot-email").value.trim() }
+    });
+    output.textContent = result.message;
+  } catch (error) {
+    output.textContent = error.message;
+  } finally { button.disabled = false; }
+});
+resetPasswordForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = resetPasswordForm.querySelector("button[type=submit]");
+  const output = document.querySelector("#reset-result");
+  button.disabled = true;
+  try {
+    const result = await apiRequest("/api/password/reset", {
+      method: "POST", body: { token: resetToken, password: document.querySelector("#reset-password").value }
+    });
+    output.textContent = result.message;
+    window.history.replaceState(null, "", window.location.pathname);
+    resetPasswordForm.reset();
+    setTimeout(() => { showRecoveryForm(null); setAuthMode("login"); }, 1800);
+  } catch (error) { output.textContent = error.message; }
+  finally { button.disabled = false; }
+});
+if (resetToken) showRecoveryForm("reset");
+
 document.querySelector("#login-tab").addEventListener("click", () => setAuthMode("login"));
 document.querySelector("#register-tab").addEventListener("click", () => setAuthMode("register"));
 
@@ -907,6 +958,7 @@ function setAuthMode(mode) {
   document.querySelector("#auth-submit span").textContent = registering ? "Hesap oluştur" : "Giriş yap";
   document.querySelector("#auth-password").autocomplete = registering ? "new-password" : "current-password";
   document.querySelector("#password-hint").textContent = registering ? "En az 8 karakter" : "";
+  forgotPasswordButton.hidden = registering;
   clearAuthError();
 }
 
