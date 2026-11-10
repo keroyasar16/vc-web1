@@ -893,6 +893,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         if (!previous || previous.createdAt < message.createdAt) conversations.set(otherUserId, {
           id: otherUserId,
           username: store.users.find((item) => item.id === otherUserId)?.username || "",
+          avatar: store.users.find((item) => item.id === otherUserId)?.avatar || "",
           isOnline: isUserOnline(otherUserId),
           isFriend: areFriends(user.id, otherUserId),
           canMessage: true,
@@ -1018,6 +1019,13 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         throw error;
       }
       for (const serverId of user.servers) publishServerMembers(serverId);
+      // Notify all connected clients without persisting duplicate profile snapshots.
+      const profileEvent = JSON.stringify({ type: "profile-updated", profile: publicUserProfile(user) });
+      for (const connections of userConnections.values()) {
+        for (const connection of connections) {
+          if (connection.readyState === WebSocket.OPEN) connection.send(profileEvent);
+        }
+      }
       sendJson(response, 200, { profile: publicUserProfile(user) });
       return;
     }
@@ -1075,7 +1083,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       const byId = (userId) => {
         const friend = store.users.find((item) => item.id === userId);
         return friend
-          ? { id: friend.id, username: friend.username, isOnline: isUserOnline(friend.id) }
+          ? { id: friend.id, username: friend.username, avatar: friend.avatar || "", isOnline: isUserOnline(friend.id) }
           : undefined;
       };
       sendJson(response, 200, {
@@ -2859,7 +2867,10 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         room.add(webSocket);
         const messages = store.directMessages
           .filter((item) => item.conversationId === webSocket.directMessageRoomId)
-          .slice(-100);
+          .slice(-100).map((item) => {
+            const sender = store.users.find((user) => user.id === item.senderId);
+            return sender ? { ...item, name: sender.username, avatar: sender.avatar || "" } : item;
+          });
         webSocket.send(JSON.stringify({ type: "dm-history", messages }));
         return;
       }
@@ -2901,7 +2912,10 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         webSocket.send(JSON.stringify({ type: "dm-error", message: "Mesaj kaydedilemedi. Tekrar dene." }));
         return;
       }
-      const serialized = JSON.stringify({ type: "dm-message", message: directMessage });
+      const serialized = JSON.stringify({ type: "dm-message", message: {
+        ...directMessage,
+        avatar: store.users.find((item) => item.id === directMessage.senderId)?.avatar || "",
+      } });
       for (const recipient of directMessageRooms.get(webSocket.directMessageRoomId) || []) {
         if (recipient.readyState === WebSocket.OPEN) recipient.send(serialized);
       }
