@@ -87,6 +87,7 @@ function publicUserProfile(user) {
     id: user.id,
     username: user.username,
     bio: typeof user.bio === "string" ? user.bio : "",
+    avatar: typeof user.avatar === "string" ? user.avatar : "",
     createdAt: typeof user.createdAt === "string" ? user.createdAt : null,
   };
 }
@@ -949,9 +950,20 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         sendJson(response, 409, { error: "Bu kullanıcı adı zaten kullanılıyor." });
         return;
       }
-      const previousProfile = { username: user.username, bio: user.bio };
+      let avatar = user.avatar || "";
+      if (body.avatar !== undefined) {
+        if (typeof body.avatar !== "string" ||
+            (body.avatar !== "" && !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(body.avatar)) ||
+            Buffer.byteLength(body.avatar, "utf8") > 140000) {
+          sendJson(response, 400, { error: "Profil fotoğrafı PNG, JPEG veya WebP olmalı ve 100 KB sınırını aşmamalı." });
+          return;
+        }
+        avatar = body.avatar;
+      }
+      const previousProfile = { username: user.username, bio: user.bio, avatar: user.avatar };
       user.username = username;
       user.bio = bio;
+      user.avatar = avatar;
       try {
         persistStore();
       } catch (error) {
@@ -2205,6 +2217,33 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         throw error;
       }
       sendJson(response, 201, { server: publicServer(newServer, user.id) });
+      return;
+    }
+
+    const leaveServerRoute = pathname.match(/^\/api\/servers\/([a-f\d-]{36})\/leave$/i);
+    if (request.method === "POST" && leaveServerRoute) {
+      const user = getUser(request);
+      if (!user) {
+        sendJson(response, 401, { error: "Sunucudan ayrılmak için giriş yap." });
+        return;
+      }
+      const serverRecord = store.servers.find((item) => item.id === leaveServerRoute[1]);
+      if (!serverRecord || !user.servers.includes(serverRecord.id)) {
+        sendJson(response, 404, { error: "Üyesi olduğun sunucu bulunamadı." });
+        return;
+      }
+      if (serverRecord.ownerId === user.id) {
+        sendJson(response, 409, { error: "Sunucu sahibi ayrılamaz. Önce sahipliği devretmeli veya sunucuyu silmelisin." });
+        return;
+      }
+      const previousServers = [...user.servers];
+      user.servers = user.servers.filter((id) => id !== serverRecord.id);
+      try { persistStore(); } catch (error) { user.servers = previousServers; throw error; }
+      for (const connection of serverConnections.get(serverRecord.id) || []) {
+        if (connection.presenceUserId === user.id) connection.close(1008, "Sunucudan ayrıldı");
+      }
+      publishServerMembers(serverRecord.id);
+      sendJson(response, 200, { ok: true });
       return;
     }
 
