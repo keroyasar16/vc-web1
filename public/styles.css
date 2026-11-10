@@ -1617,3 +1617,9 @@ body {
 .member-profile-dialog .member-profile-identity { position: absolute; top: 112px; left: 0; right: 0; min-height: 75px; padding: 16px 16px 8px 104px; display: flex; flex-direction: column; justify-content: center; }
 .member-profile-dialog .member-profile-identity h2 { overflow-wrap: anywhere; line-height: 1.25; }
 .server-member-avatar.has-photo, .friend-avatar.has-photo, .channel-participant-avatar.has-photo, .participant-avatar.has-photo { background-size: cover !important; background-position: center !important; background-repeat: no-repeat !important; }
+
+/* Live user avatars and clickable profiles in server chat. */
+.chat-avatar.has-photo { background-size: cover; background-position: center; background-repeat: no-repeat; }
+.chat-profile-link { cursor: pointer; }
+.chat-message-meta .chat-profile-link:hover { text-decoration: underline; }
+.chat-profile-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
