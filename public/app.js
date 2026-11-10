@@ -2488,11 +2488,11 @@ function renderChannelParticipants(list, server, channel) {
     const participantName = document.createElement("span");
     participantName.className = "channel-participant-name";
     participantName.textContent = name;
-    if (participantStates.has(participantId)) {
-      participant.append(avatar, participantName, createParticipantIndicators(getParticipantState(participantId)));
-    } else {
-      participant.append(avatar, participantName);
-    }
+    // Presence snapshots carry voice status even when this client is not in the voice channel.
+    const state = participantStates.has(participantId)
+      ? getParticipantState(participantId)
+      : { microphoneMuted: member.microphoneMuted === true, soundMuted: member.soundMuted === true, sharing: false, camera: false };
+    participant.append(avatar, participantName, createParticipantIndicators(state));
     list.append(participant);
   }
 }
