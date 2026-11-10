@@ -1623,3 +1623,5 @@ body {
 .chat-profile-link { cursor: pointer; }
 .chat-message-meta .chat-profile-link:hover { text-decoration: underline; }
 .chat-profile-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* Profile photos in chat and direct messages */
+.chat-avatar.has-photo, .dm-header .friend-avatar.has-photo { background-size: cover !important; background-position: center !important; background-repeat: no-repeat !important; }
