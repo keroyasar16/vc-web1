@@ -416,7 +416,8 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
     if (!connections) return;
     connections.delete(webSocket);
     if (connections.size === 0) serverConnections.delete(serverId);
-    else publishServerMembers(serverId);
+    // Also broadcast when the LAST voice user leaves the room.
+    publishServerMembers(serverId);
   }
 
   function createSession(userId, request) {
@@ -2438,6 +2439,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
             }
           }
           setConnectionUser(webSocket, user.id);
+          // A voice-state packet may arrive before authentication; publish it now.
           publishServerMembers(serverId);
         }
         return;
@@ -2453,7 +2455,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
           return;
         }
         webSocket.voiceState = { microphoneMuted: message.microphoneMuted, soundMuted: message.soundMuted };
-        if (webSocket.presenceServerId) publishServerMembers(webSocket.presenceServerId);
+        if (webSocket.presenceServerId && webSocket.presenceUserId) publishServerMembers(webSocket.presenceServerId);
         const serialized = JSON.stringify({
           type: "voice-state",
           peerId: clientId,
