@@ -1,7 +1,7 @@
 const http = require("node:http");
 const path = require("node:path");
 const fs = require("node:fs");
-const { createHash, randomUUID, scryptSync, timingSafeEqual } = require("node:crypto");
+const { createHash, randomUUID, randomBytes, scryptSync, timingSafeEqual } = require("node:crypto");
 const { WebSocket, WebSocketServer } = require("ws");
 const MAX_SERVER_IMAGE_BYTES = 256 * 1024;
 const MAX_JSON_BODY_BYTES = 512 * 1024;
@@ -106,6 +106,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
   const serverConnections = new Map();
   const userConnections = new Map();
   const sessions = new Map();
+  const resetRateLimits = new Map();
   let webSocketServers = [];
   fs.mkdirSync(path.dirname(dataFile), { recursive: true });
   let migratedSessionIds = false;
@@ -119,7 +120,8 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       }
       if (!Array.isArray(store.sessions)) store.sessions = [];
       if (!Array.isArray(store.messages)) store.messages = [];
-      if (!Array.isArray(store.friendRequests)) store.friendRequests = [];
+      if (!Array.isArray(store.passwordResets)) store.passwordResets = [];
+  if (!Array.isArray(store.friendRequests)) store.friendRequests = [];
       if (!Array.isArray(store.directMessages)) store.directMessages = [];
       if (!Array.isArray(store.notifications)) store.notifications = [];
     } catch (error) {
@@ -540,6 +542,103 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
 
   async function handleApi(request, response, requestUrl) {
     const { pathname } = requestUrl;
+
+    // Reset tokens are random, single-use, stored only as SHA-256 hashes and expire in 30 minutes.
+    if (request.method === "POST" && pathname === "/api/password/forgot") {
+      const body = await readJson(request);
+      const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+      if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+        sendJson(response, 400, { error: "Geçerli bir e-posta adresi gir." });
+        return;
+      }
+      const ip = (request.socket.remoteAddress || "unknown").slice(0, 80);
+      const now = Date.now();
+      for (const [key, expires] of resetRateLimits) if (expires <= now) resetRateLimits.delete(key);
+      if (resetRateLimits.size > 10000) resetRateLimits.clear();
+      const ipKey = `ip:${ip}`;
+      const emailKey = `email:${createHash("sha256").update(email).digest("hex")}`;
+      if (resetRateLimits.has(ipKey) || resetRateLimits.has(emailKey)) {
+        sendJson(response, 200, { message: "Bu e-posta kayıtlıysa şifre sıfırlama bağlantısı gönderilecektir." });
+        return;
+      }
+      resetRateLimits.set(ipKey, now + 30_000);
+      resetRateLimits.set(emailKey, now + 60_000);
+      const user = store.users.find((item) => item.email?.toLowerCase() === email);
+      if (user) {
+        const apiKey = process.env.RESEND_API_KEY;
+        const mailFrom = process.env.MAIL_FROM;
+        const baseUrl = process.env.APP_BASE_URL;
+        if (!apiKey || !mailFrom || !baseUrl || !/^https:\/\/[^/]+/.test(baseUrl)) {
+          console.error("Şifre sıfırlama e-posta ayarları eksik: RESEND_API_KEY, MAIL_FROM, APP_BASE_URL");
+          sendJson(response, 503, { error: "E-posta servisi henüz yapılandırılmadı." });
+          return;
+        }
+        const token = randomBytes(32).toString("hex");
+        const tokenHash = createHash("sha256").update(token).digest("hex");
+        const resetLink = `${baseUrl.replace(/\/$/, "")}/?reset_token=${encodeURIComponent(token)}`;
+        const message = `VC hesabının şifresini sıfırlamak için bağlantıyı aç:\n\n${resetLink}\n\nBağlantı 30 dakika geçerlidir ve bir kez kullanılabilir. Bu isteği sen yapmadıysan e-postayı yok say.`;
+        let mailResponse;
+        try {
+          mailResponse = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ from: mailFrom, to: [user.email], subject: "VC - Şifre sıfırlama", text: message }),
+            signal: AbortSignal.timeout(10000),
+          });
+        } catch (error) {
+          console.error("Şifre sıfırlama e-postası gönderilemedi:", error.message);
+          sendJson(response, 503, { error: "E-posta gönderilemedi. Daha sonra tekrar dene." });
+          return;
+        }
+        if (!mailResponse.ok) {
+          console.error("E-posta servisi başarısız:", mailResponse.status);
+          sendJson(response, 503, { error: "E-posta gönderilemedi. Daha sonra tekrar dene." });
+          return;
+        }
+        store.passwordResets = store.passwordResets.filter((entry) => entry.userId !== user.id && entry.expiresAt > now);
+        store.passwordResets.push({ userId: user.id, tokenHash, expiresAt: now + 30 * 60 * 1000 });
+        persistStore();
+      }
+      sendJson(response, 200, { message: "Bu e-posta kayıtlıysa şifre sıfırlama bağlantısı gönderilecektir." });
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/api/password/reset") {
+      const body = await readJson(request);
+      const token = typeof body.token === "string" ? body.token : "";
+      const password = typeof body.password === "string" ? body.password : "";
+      if (!/^[0-9a-f]{64}$/.test(token) || password.length < 8 || password.length > 128) {
+        sendJson(response, 400, { error: "Geçersiz bağlantı veya şifre (8-128 karakter olmalı)." });
+        return;
+      }
+      const tokenHash = createHash("sha256").update(token).digest("hex");
+      const entry = store.passwordResets.find((item) => item.tokenHash === tokenHash && item.expiresAt > Date.now());
+      const user = entry && store.users.find((item) => item.id === entry.userId);
+      if (!user) {
+        sendJson(response, 400, { error: "Bağlantı geçersiz veya süresi dolmuş. Yeni bağlantı iste." });
+        return;
+      }
+      const salt = randomUUID();
+      const newHash = scryptSync(password, salt, passwordBytes).toString("hex");
+      const oldStore = JSON.stringify(store);
+      user.salt = salt;
+      user.passwordHash = newHash;
+      store.passwordResets = store.passwordResets.filter((item) => item.userId !== user.id);
+      const revoked = store.sessions.filter((item) => item.userId === user.id);
+      store.sessions = store.sessions.filter((item) => item.userId !== user.id);
+      try {
+        persistStore();
+      } catch (error) {
+        store = JSON.parse(oldStore);
+        throw error;
+      }
+      for (const session of revoked) {
+        sessions.delete(session.tokenHash);
+        closeSessionConnections(session.tokenHash);
+      }
+      sendJson(response, 200, { message: "Şifren değiştirildi. Yeni şifrenle giriş yapabilirsin." });
+      return;
+    }
 
     if (request.method === "POST" && ["/api/register", "/api/login"].includes(pathname)) {
       const body = await readJson(request);
@@ -2742,9 +2841,9 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
 
 if (require.main === module) {
   const port = Number(process.env.PORT) || 3000;
-  const dataDirectory = typeof process.pkg === "undefined"
+  const dataDirectory = process.env.DATA_DIR || (typeof process.pkg === "undefined"
     ? path.join(__dirname, "data")
-    : path.join(path.dirname(process.execPath), "data");
+    : path.join(path.dirname(process.execPath), "data"));
   const { server } = createServer({ dataFile: path.join(dataDirectory, "store.json") });
   server.on("error", (error) => {
     if (error.code === "EADDRINUSE") {
