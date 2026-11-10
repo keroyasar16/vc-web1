@@ -152,6 +152,45 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
     if (!Array.isArray(server.bannedUserIds)) server.bannedUserIds = [];
   }
 
+  // Short, cryptographically random invitation codes; avoid collisions with old aliases.
+  const INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  function generateInviteCode() {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const bytes = randomBytes(7);
+      const code = Array.from(bytes, (byte) => INVITE_ALPHABET[byte % INVITE_ALPHABET.length]).join("");
+      if (!store.servers.some((item) => item.inviteCode === code || item.legacyInviteCodes?.includes(code))) return code;
+    }
+    throw new Error("Benzersiz davet kodu oluşturulamadı.");
+  }
+
+  function matchesInviteCode(server, code) {
+    return Boolean(code) && (server.inviteCode === code || server.legacyInviteCodes?.includes(code));
+  }
+
+  function findServerByInviteOrName(value) {
+    const query = String(value || "").trim();
+    if (!query) return { error: "Davet kodu veya sunucu adı gir." };
+    const byCode = store.servers.find((item) => matchesInviteCode(item, query));
+    if (byCode) return { server: byCode };
+    const matchingNames = store.servers.filter((item) => item.name.toLocaleLowerCase("tr") === query.toLocaleLowerCase("tr"));
+    if (matchingNames.length > 1) return { error: "Bu isimde birden fazla sunucu var. Katılmak için 7 karakterlik davet kodunu kullan.", status: 409 };
+    if (matchingNames.length === 1) return { server: matchingNames[0] };
+    return { error: "Davet kodu veya sunucu adıyla eşleşen sunucu bulunamadı.", status: 404 };
+  }
+
+  // Upgrade existing long codes without invalidating old shared links.
+  let inviteCodesMigrated = false;
+  for (const item of store.servers) {
+    if (typeof item.inviteCode !== "string" || item.inviteCode.length !== 7) {
+      if (item.inviteCode) {
+        if (!Array.isArray(item.legacyInviteCodes)) item.legacyInviteCodes = [];
+        if (!item.legacyInviteCodes.includes(item.inviteCode)) item.legacyInviteCodes.push(item.inviteCode);
+      }
+      item.inviteCode = generateInviteCode();
+      inviteCodesMigrated = true;
+    }
+  }
+
   function persistStore() {
     const temporaryFile = `${dataFile}.${randomUUID()}.tmp`;
     try {
@@ -163,7 +202,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
     }
   }
 
-  if (migratedSessionIds) persistStore();
+  if (migratedSessionIds || inviteCodesMigrated) persistStore();
 
   function sendJson(response, status, payload) {
     response.writeHead(status, {
@@ -1305,7 +1344,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
 
     if (request.method === "GET" && pathname === "/api/servers/invite") {
       const code = requestUrl.searchParams.get("code");
-      const serverRecord = store.servers.find((item) => item.inviteCode === code);
+      const serverRecord = store.servers.find((item) => matchesInviteCode(item, code));
       sendJson(response, serverRecord ? 200 : 404, serverRecord
         ? { server: publicServer(serverRecord, getUser(request)?.id) }
         : { error: "Davet bağlantısı geçersiz." });
@@ -1842,7 +1881,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         return;
       }
       const previousInviteCode = serverRecord.inviteCode;
-      serverRecord.inviteCode = randomUUID().replaceAll("-", "");
+      serverRecord.inviteCode = generateInviteCode();
       try {
         persistStore();
       } catch (error) {
@@ -2197,7 +2236,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       const newServer = {
         id: randomUUID(),
         name,
-        inviteCode: randomUUID().replaceAll("-", ""),
+        inviteCode: generateInviteCode(),
         ownerId: user.id,
         nicknames: {},
         bannedUserIds: [],
@@ -2258,11 +2297,12 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
     if (request.method === "POST" && pathname === "/api/servers/join") {
       const body = await readJson(request);
       const code = typeof body.inviteCode === "string" ? body.inviteCode.trim() : "";
-      const serverRecord = store.servers.find((item) => item.inviteCode === code);
-      if (!serverRecord) {
-        sendJson(response, 404, { error: "Davet koduyla eşleşen sunucu bulunamadı." });
+      const resolved = findServerByInviteOrName(code);
+      if (!resolved.server) {
+        sendJson(response, resolved.status || 400, { error: resolved.error });
         return;
       }
+      const serverRecord = resolved.server;
       const user = getUser(request);
       if (user && serverRecord.bannedUserIds?.includes(user.id)) {
         sendJson(response, 403, { error: "Bu sunucudan yasaklandığın için tekrar katılamazsın." });
@@ -2507,7 +2547,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       : serverRecord?.channels.find((item) => item.id === channelId);
     if (
       !serverRecord ||
-      serverRecord.inviteCode !== parameters.get("invite") ||
+      !matchesInviteCode(serverRecord, parameters.get("invite")) ||
       (channelId !== "general" && !channel)
       || (channel && channel.type && channel.type !== "text")
     ) {
