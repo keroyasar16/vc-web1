@@ -640,11 +640,53 @@ function closeDirectMessageConnection() {
   connection.close(1000, "Özel mesaj kapatıldı");
 }
 
+// Keep profile snapshots fresh even if a WebSocket update is missed.
+const liveProfileCache = new Map();
+let profileSyncRunning = false;
+async function syncVisibleProfiles() {
+  if (!accountUser || !authToken || profileSyncRunning || document.hidden) return;
+  profileSyncRunning = true;
+  try {
+    const activeServerId = currentServer?.id || selectedServer?.id;
+    const requests = [apiRequest("/api/dms")];
+    if (activeServerId) requests.push(apiRequest(`/api/servers/${encodeURIComponent(activeServerId)}/members`));
+    const results = await Promise.allSettled(requests);
+    if (results[0].status === "fulfilled") {
+      directMessageUsers = results[0].value.users || [];
+      for (const profile of directMessageUsers) applyLiveProfile(profile, true);
+      renderDirectMessagesSidebar();
+    }
+    if (activeServerId && results[1]?.status === "fulfilled" &&
+        (currentServer?.id === activeServerId || selectedServer?.id === activeServerId)) {
+      updateServerMemberPresence({
+        serverId: activeServerId,
+        members: results[1].value.members || [],
+        voiceParticipants: results[1].value.voiceParticipants || []
+      });
+      for (const profile of serverMembers) applyLiveProfile(profile, true);
+    }
+    if (activeDirectMessage) {
+      const fresh = liveProfileCache.get(activeDirectMessage.id);
+      if (fresh) {
+        Object.assign(activeDirectMessage, fresh);
+        document.querySelector("#dm-title").textContent = fresh.username;
+        setAvatar(document.querySelector("#dm-avatar"), fresh);
+      }
+    }
+    refreshDirectMessageProfiles();
+    refreshChatMessageProfiles();
+  } catch (error) {
+    console.warn("Profil bilgileri yenilenemedi:", error);
+  } finally { profileSyncRunning = false; }
+}
+window.setInterval(syncVisibleProfiles, 12000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) syncVisibleProfiles(); });
+
 function resolveDirectMessageAuthor(message) {
   const id = message.senderId;
   const user = id === accountUser?.id ? accountUser :
-    id === activeDirectMessage?.id ? activeDirectMessage :
-    friendData.friends.find((item) => item.id === id) || directMessageUsers.find((item) => item.id === id);
+    (liveProfileCache.get(id) || (id === activeDirectMessage?.id ? activeDirectMessage : null) ||
+    friendData.friends.find((item) => item.id === id) || directMessageUsers.find((item) => item.id === id));
   return { username: user?.username || message.name || "Kullanıcı", avatar: user?.avatar ?? message.avatar ?? "" };
 }
 
@@ -657,7 +699,8 @@ function refreshDirectMessageProfiles() {
   }
 }
 
-function applyLiveProfile(profile) {
+function applyLiveProfile(profile, skipFullRender = false) {
+  if (profile?.id) liveProfileCache.set(profile.id, { ...liveProfileCache.get(profile.id), ...profile });
   if (!profile?.id) return;
   if (accountUser?.id === profile.id) {
     accountUser = { ...accountUser, ...profile };
@@ -677,6 +720,7 @@ function applyLiveProfile(profile) {
     setAvatar(document.querySelector("#dm-avatar"), profile);
     if (!dmView.hidden) document.querySelector(".workspace-location span:last-child").textContent = profile.username;
   }
+  if (skipFullRender) return;
   renderDirectMessagesSidebar();
   if (!friendsView.hidden) renderFriends();
   refreshDirectMessageProfiles();
@@ -3568,12 +3612,13 @@ document.querySelector("#return-to-voice").addEventListener("click", () => {
 
 function resolveChatAuthor(message) {
   const member = message.senderId ? serverMembers.find((item) => item.id === message.senderId) : null;
+  const cached = message.senderId ? liveProfileCache.get(message.senderId) : null;
   const user = message.senderId === accountUser?.id ? accountUser : null;
   return {
     userId: message.senderId || null,
-    username: member?.username || user?.username || message.username || message.name || "Misafir",
+    username: member?.username || cached?.username || user?.username || message.username || message.name || "Misafir",
     nickname: member?.nickname || "",
-    avatar: member?.avatar || user?.avatar || message.avatar || "",
+    avatar: member?.avatar ?? cached?.avatar ?? user?.avatar ?? message.avatar ?? "",
   };
 }
 
