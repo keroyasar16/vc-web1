@@ -2548,6 +2548,7 @@ function updateServerMemberPresence(message) {
   }
   renderServerMembers();
   renderServers();
+  refreshChatMessageProfiles();
   if (voiceActive) {
     renderParticipant("self", displayName || accountUser?.username || "Katılımcı", localStream);
     for (const [id, name] of participantNames) {
@@ -3511,24 +3512,68 @@ document.querySelector("#return-to-voice").addEventListener("click", () => {
     `${currentServer.name} · ${currentChannel.name}`;
 });
 
+function resolveChatAuthor(message) {
+  const member = message.senderId ? serverMembers.find((item) => item.id === message.senderId) : null;
+  const user = message.senderId === accountUser?.id ? accountUser : null;
+  return {
+    userId: message.senderId || null,
+    username: member?.username || user?.username || message.username || message.name || "Misafir",
+    nickname: member?.nickname || "",
+    avatar: member?.avatar || user?.avatar || message.avatar || "",
+  };
+}
+
+function refreshChatMessageProfiles() {
+  if (!chatMessages) return;
+  for (const article of chatMessages.querySelectorAll(".chat-message[data-message-id]")) {
+    const authorInfo = resolveChatAuthor({
+      senderId: article.dataset.senderId || null,
+      name: article.dataset.fallbackName,
+    });
+    const avatar = article.querySelector(".chat-avatar");
+    const name = article.querySelector(".chat-message-meta strong");
+    if (avatar) setAvatar(avatar, authorInfo);
+    if (name) name.textContent = authorInfo.nickname || authorInfo.username;
+    article.dataset.currentUsername = authorInfo.username;
+  }
+}
+
 function appendChatMessage(message) {
   chatMessages.querySelector(".chat-empty-state")?.remove();
   const article = document.createElement("article");
   article.className = "chat-message";
+  article.dataset.messageId = message.id || "unknown";
+  article.dataset.senderId = message.senderId || "";
+  article.dataset.fallbackName = message.name || "";
+  const identity = resolveChatAuthor(message);
   const avatar = document.createElement("span");
   avatar.className = "chat-avatar";
-  avatar.textContent = getInitials(message.name);
+  setAvatar(avatar, identity);
   const content = document.createElement("div");
   content.className = "chat-message-content";
   const metadata = document.createElement("div");
   metadata.className = "chat-message-meta";
   const author = document.createElement("strong");
-  author.textContent = message.name;
+  author.textContent = identity.nickname || identity.username;
+  const openAuthorProfile = () => {
+    if (identity.userId) showMemberProfile({ userId: identity.userId, username: article.dataset.currentUsername || identity.username });
+  };
+  if (identity.userId) {
+    avatar.classList.add("chat-profile-link");
+    author.classList.add("chat-profile-link");
+    avatar.setAttribute("role", "button");
+    avatar.tabIndex = 0;
+    author.tabIndex = 0;
+    avatar.addEventListener("click", openAuthorProfile);
+    author.addEventListener("click", openAuthorProfile);
+    for (const element of [avatar, author]) element.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openAuthorProfile(); }
+    });
+  }
   const timestamp = document.createElement("time");
   timestamp.dateTime = message.createdAt;
   timestamp.textContent = new Date(message.createdAt).toLocaleTimeString("tr-TR", {
-    hour: "2-digit",
-    minute: "2-digit",
+    hour: "2-digit", minute: "2-digit",
   });
   const text = document.createElement("p");
   appendChatMessageText(text, message.text);
