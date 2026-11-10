@@ -2557,6 +2557,13 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
 
     const name = (parameters.get("name") || "Misafir").trim().slice(0, 32) || "Misafir";
     const roomId = `${serverId}:${channelId}`;
+    function currentChatMessages() {
+      return currentChatMessages().map((message) => {
+          const sender = message.senderId
+            ? store.users.find((user) => user.id === message.senderId) : null;
+          return sender ? { ...message, name: sender.username, avatar: sender.avatar || "" } : message;
+        });
+    }
     let room = chatRooms.get(roomId);
     if (!room) {
       room = new Set();
@@ -2577,8 +2584,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         registerServerConnection(webSocket, serverId, undefined, "chat", false);
         webSocket.send(JSON.stringify({
           type: "chat-history",
-          messages: store.messages.filter((message) =>
-            message.serverId === serverId && message.channelId === channelId),
+          messages: currentChatMessages(),
           members: getServerMembers(serverId),
           voiceParticipants: getServerVoiceParticipants(serverId),
         }));
@@ -2593,8 +2599,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       registerServerConnection(webSocket, serverId, undefined, "chat", false);
       webSocket.send(JSON.stringify({
         type: "chat-history",
-        messages: store.messages.filter((message) =>
-          message.serverId === serverId && message.channelId === channelId),
+        messages: currentChatMessages(),
         members: getServerMembers(serverId),
         voiceParticipants: getServerVoiceParticipants(serverId),
       }));
@@ -2630,8 +2635,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
           if (webSocket.requiresChannelAuth) {
             webSocket.send(JSON.stringify({
               type: "chat-history",
-              messages: store.messages.filter((message) =>
-                message.serverId === serverId && message.channelId === channelId),
+              messages: currentChatMessages(),
               members: getServerMembers(serverId),
               voiceParticipants: getServerVoiceParticipants(serverId),
             }));
@@ -2662,7 +2666,9 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         serverId,
         channelId,
         senderId: webSocket.presenceUserId || null,
-        name,
+        name: webSocket.presenceUserId
+          ? store.users.find((user) => user.id === webSocket.presenceUserId)?.username || name
+          : name,
         text,
         createdAt: new Date(now).toISOString(),
       };
