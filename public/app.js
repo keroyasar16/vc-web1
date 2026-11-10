@@ -389,7 +389,7 @@ function renderFriends() {
       }
       const avatar = document.createElement("span");
       avatar.className = `friend-avatar${friend.isOnline ? " is-online" : ""}`;
-      avatar.textContent = getInitials(friend.username);
+      setAvatar(avatar, friend);
       const identity = document.createElement("div");
       identity.className = "friend-identity";
       const username = document.createElement("strong");
@@ -443,7 +443,7 @@ function renderFriends() {
       });
       const avatar = document.createElement("span");
       avatar.className = "friend-avatar is-online";
-      avatar.textContent = getInitials(friend.username);
+      setAvatar(avatar, friend);
       const name = document.createElement("strong");
       name.textContent = friend.username;
       const status = document.createElement("span");
@@ -475,7 +475,7 @@ function renderDirectMessagesSidebar() {
     button.addEventListener("click", () => openDirectMessage(friend));
     const avatar = document.createElement("span");
     avatar.className = `friend-avatar${friend.isOnline ? " is-online" : ""}`;
-    avatar.textContent = getInitials(friend.username);
+    setAvatar(avatar, friend);
     const name = document.createElement("span");
     name.textContent = friend.username;
     button.append(avatar, name);
@@ -538,7 +538,7 @@ function renderFriendSearchMatches(query) {
     });
     const avatar = document.createElement("span");
     avatar.className = `friend-avatar${friend.isOnline ? " is-online" : ""}`;
-    avatar.textContent = getInitials(friend.username);
+    setAvatar(avatar, friend);
     const name = document.createElement("span");
     name.textContent = friend.username;
     button.append(avatar, name);
@@ -567,7 +567,7 @@ function openDirectMessage(friend, initialMessage = "") {
   document.querySelector("#friends-sidebar-home").classList.remove("is-active");
   document.querySelector(".workspace-location span:last-child").textContent = friend.username;
   document.querySelector("#dm-title").textContent = friend.username;
-  document.querySelector("#dm-avatar").textContent = getInitials(friend.username);
+  setAvatar(document.querySelector("#dm-avatar"), friend);
   document.querySelector("#dm-status").textContent = friend.isOnline ? "Çevrim içi" : "Özel mesaj";
   dmMessages.replaceChildren();
   dmInput.value = initialMessage;
@@ -640,19 +640,70 @@ function closeDirectMessageConnection() {
   connection.close(1000, "Özel mesaj kapatıldı");
 }
 
+function resolveDirectMessageAuthor(message) {
+  const id = message.senderId;
+  const user = id === accountUser?.id ? accountUser :
+    id === activeDirectMessage?.id ? activeDirectMessage :
+    friendData.friends.find((item) => item.id === id) || directMessageUsers.find((item) => item.id === id);
+  return { username: user?.username || message.name || "Kullanıcı", avatar: user?.avatar ?? message.avatar ?? "" };
+}
+
+function refreshDirectMessageProfiles() {
+  for (const article of dmMessages.querySelectorAll(".chat-message[data-sender-id]")) {
+    const identity = resolveDirectMessageAuthor({ senderId: article.dataset.senderId, name: article.dataset.fallbackName });
+    setAvatar(article.querySelector(".chat-avatar"), identity);
+    const author = article.querySelector(".chat-message-meta strong");
+    if (author) author.textContent = identity.username;
+  }
+}
+
+function applyLiveProfile(profile) {
+  if (!profile?.id) return;
+  if (accountUser?.id === profile.id) {
+    accountUser = { ...accountUser, ...profile };
+    displayName = profile.username;
+    document.querySelector("#account-name").textContent = profile.username;
+    setAvatar(document.querySelector("#account-avatar"), accountUser);
+  }
+  for (const collection of [friendData.friends, directMessageUsers, serverMembers]) {
+    for (const user of collection) if (user.id === profile.id) Object.assign(user, profile);
+  }
+  for (const key of ["incomingRequests", "outgoingRequests"]) {
+    for (const item of friendData[key] || []) if (item.user?.id === profile.id) Object.assign(item.user, profile);
+  }
+  if (activeDirectMessage?.id === profile.id) {
+    Object.assign(activeDirectMessage, profile);
+    document.querySelector("#dm-title").textContent = profile.username;
+    setAvatar(document.querySelector("#dm-avatar"), profile);
+    if (!dmView.hidden) document.querySelector(".workspace-location span:last-child").textContent = profile.username;
+  }
+  renderDirectMessagesSidebar();
+  if (!friendsView.hidden) renderFriends();
+  refreshDirectMessageProfiles();
+  refreshChatMessageProfiles();
+  renderServerMembers();
+  if (voiceActive) {
+    renderParticipant("self", displayName || accountUser?.username || "Katılımcı", localStream);
+    for (const [id, name] of participantNames) renderParticipant(id, name, participantStreams.get(id));
+  }
+}
+
 function appendDirectMessage(message) {
   dmMessages.querySelector(".dm-empty-state")?.remove();
   const article = document.createElement("article");
   article.className = `chat-message${message.senderId === accountUser?.id ? " is-own-message" : ""}`;
   const avatar = document.createElement("span");
   avatar.className = "chat-avatar";
-  avatar.textContent = getInitials(message.name);
+  article.dataset.senderId = message.senderId || "";
+  article.dataset.fallbackName = message.name || "";
+  const identity = resolveDirectMessageAuthor(message);
+  setAvatar(avatar, identity);
   const content = document.createElement("div");
   content.className = "chat-message-content";
   const metadata = document.createElement("div");
   metadata.className = "chat-message-meta";
   const author = document.createElement("strong");
-  author.textContent = message.name;
+  author.textContent = identity.username;
   const timestamp = document.createElement("time");
   timestamp.dateTime = message.createdAt;
   timestamp.textContent = new Date(message.createdAt).toLocaleTimeString("tr-TR", {
@@ -712,6 +763,8 @@ function connectPresence() {
         }
         renderFriends();
       }
+    } else if (message.type === "profile-updated") {
+      applyLiveProfile(message.profile);
     } else if (message.type === "presence-ready") {
       presenceReady = true;
       subscribeToSelectedServerPresence();
@@ -1305,7 +1358,7 @@ profileEditForm.addEventListener("submit", async (event) => {
     accountUser = { ...accountUser, ...result.profile };
     displayName = accountUser.username;
     showAccount();
-    if (voiceActive) renderParticipant("self", displayName, localStream);
+    applyLiveProfile(result.profile);
     profileEditDialog.close();
     showToast("Profil güncellendi");
   } catch (error) {
@@ -2549,6 +2602,7 @@ function updateServerMemberPresence(message) {
   renderServerMembers();
   renderServers();
   refreshChatMessageProfiles();
+  refreshDirectMessageProfiles();
   if (voiceActive) {
     renderParticipant("self", displayName || accountUser?.username || "Katılımcı", localStream);
     for (const [id, name] of participantNames) {
