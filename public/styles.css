@@ -1609,3 +1609,11 @@ body {
 .member-profile-dialog .member-profile-status { margin-top: 5px; }
 .channel-participant .participant-status-icons { margin-left: auto; }
 .channel-participant .participant-status-icon { width: 17px; height: 17px; color: #f06b72; }
+
+/* VC: isolated profile card layout and consistently cropped uploaded avatars. */
+.member-profile-dialog .member-profile-header { position: relative; display: block; min-height: 196px; margin: 0 0 8px; }
+.member-profile-dialog .member-profile-banner { height: 112px; width: 100%; }
+.member-profile-dialog .member-profile-avatar { position: absolute; top: 78px; left: 16px; bottom: auto; width: 72px; height: 72px; border: 5px solid #2b2d31; border-radius: 50%; background-size: cover !important; background-position: center !important; flex: none; }
+.member-profile-dialog .member-profile-identity { position: absolute; top: 112px; left: 0; right: 0; min-height: 75px; padding: 16px 16px 8px 104px; display: flex; flex-direction: column; justify-content: center; }
+.member-profile-dialog .member-profile-identity h2 { overflow-wrap: anywhere; line-height: 1.25; }
+.server-member-avatar.has-photo, .friend-avatar.has-photo, .channel-participant-avatar.has-photo, .participant-avatar.has-photo { background-size: cover !important; background-position: center !important; background-repeat: no-repeat !important; }

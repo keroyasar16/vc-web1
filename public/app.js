@@ -2535,9 +2535,20 @@ function updateServerMemberPresence(message) {
   serverMembers = Array.isArray(message.members) ? message.members : [];
   serverVoiceParticipants = Array.isArray(message.voiceParticipants) ? message.voiceParticipants : [];
   serverVoiceParticipantsServerId = message.serverId;
+  for (const participant of serverVoiceParticipants) {
+    if (!participant.clientId || participant.clientId === clientId) continue;
+    const previous = participantStates.get(participant.clientId) || {};
+    participantStates.set(participant.clientId, {
+      ...previous,
+      microphoneMuted: participant.microphoneMuted === true,
+      soundMuted: participant.soundMuted === true,
+      sharing: participant.sharing === true,
+    });
+  }
   renderServerMembers();
   renderServers();
   if (voiceActive) {
+    renderParticipant("self", displayName || accountUser?.username || "Katılımcı", localStream);
     for (const [id, name] of participantNames) {
       renderParticipant(id, name, participantStreams.get(id));
     }
@@ -2934,7 +2945,7 @@ function renderServerMembers() {
   for (const user of globallyOnlineUsers) {
     const serverMember = memberById.get(user.id);
     if (!serverMember) continue;
-    onlineById.set(user.id, { ...serverMember, ...user, isOnline: true, isServerMember: true });
+    onlineById.set(user.id, { ...user, ...serverMember, isOnline: true, isServerMember: true });
   }
   for (const member of serverMembers) {
     if (member.isOnline) {
@@ -2968,7 +2979,7 @@ function renderServerMembers() {
       item.setAttribute("role", "button");
       item.setAttribute("aria-label", `${member.nickname || member.username} profilini görüntüle`);
       const avatar = document.createElement("span");
-      avatar.className = "server-member-avatar member-profile-avatar";
+      avatar.className = "server-member-avatar";
       setAvatar(avatar, member);
       const name = document.createElement("span");
       name.className = "server-member-name";
@@ -3791,14 +3802,14 @@ function connectToRoom() {
       clientId = message.clientId;
       for (const peer of message.peers) {
         participantNames.set(peer.id, peer.name);
-        participantStates.set(peer.id, { microphoneMuted: false, soundMuted: false, sharing: false, camera: false });
+        participantStates.set(peer.id, participantStates.get(peer.id) || { microphoneMuted: false, soundMuted: false, sharing: false, camera: false });
         createPeerConnection(peer.id, peer.name, false);
       }
       updateParticipantCount();
       playVcCue("join");
     } else if (message.type === "peer-joined") {
       participantNames.set(message.peer.id, message.peer.name);
-      participantStates.set(message.peer.id, { microphoneMuted: false, soundMuted: false, sharing: false, camera: false });
+      participantStates.set(message.peer.id, participantStates.get(message.peer.id) || { microphoneMuted: false, soundMuted: false, sharing: false, camera: false });
       createPeerConnection(message.peer.id, message.peer.name, true);
       updateParticipantCount();
       playVcCue("otherJoin");
