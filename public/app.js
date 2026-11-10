@@ -2484,7 +2484,7 @@ function renderChannelParticipants(list, server, channel) {
     participant.classList.toggle("is-speaking", speakingParticipants.has(participantId));
     const avatar = document.createElement("span");
     avatar.className = "channel-participant-avatar";
-    avatar.textContent = getInitials(name);
+    setAvatar(avatar, member.avatar ? { avatar: member.avatar, username: name } : serverMembers.find((user) => user.id === member.id) || { username: name });
     const participantName = document.createElement("span");
     participantName.className = "channel-participant-name";
     participantName.textContent = name;
@@ -2504,6 +2504,11 @@ function updateServerMemberPresence(message) {
   serverVoiceParticipantsServerId = message.serverId;
   renderServerMembers();
   renderServers();
+  if (voiceActive) {
+    for (const [id, name] of participantNames) {
+      renderParticipant(id, name, participantStreams.get(id));
+    }
+  }
 }
 
 async function saveServerLayout(server, channelList) {
@@ -2931,7 +2936,7 @@ function renderServerMembers() {
       item.setAttribute("aria-label", `${member.nickname || member.username} profilini görüntüle`);
       const avatar = document.createElement("span");
       avatar.className = "server-member-avatar member-profile-avatar";
-      avatar.textContent = getInitials(member.nickname || member.username);
+      setAvatar(avatar, member);
       const name = document.createElement("span");
       name.className = "server-member-name";
       name.textContent = member.nickname || member.username;
@@ -3678,7 +3683,7 @@ async function enterVoiceRoom({ name = accountUser?.username || joinForm.element
   document.querySelector(".dashboard-account").classList.add("has-voice");
   document.querySelector("#account-name").textContent = name;
   document.querySelector("#account-name").title = name;
-  document.querySelector("#account-avatar").textContent = getInitials(name);
+  setAvatar(document.querySelector("#account-avatar"), accountUser || { username: name });
   landing.hidden = true;
   roomInWorkspace = Boolean(server);
   if (roomInWorkspace) {
@@ -3721,6 +3726,10 @@ function createRoomCode() {
 }
 
 function connectToRoom() {
+  if (!voiceActive) return;
+  if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) return;
+  const previousSocket = socket;
+  if (previousSocket && previousSocket.readyState !== WebSocket.CLOSED) previousSocket.close();
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const parameters = new URLSearchParams({ name: displayName });
   if (currentServer && currentChannel) {
@@ -3772,7 +3781,10 @@ function connectToRoom() {
       removePeer(message.peerId);
     }
   });
+  const activeSocket = socket;
   socket.addEventListener("close", (event) => {
+    if (socket !== activeSocket) return;
+    socket = undefined;
     for (const [peerId] of peers) removePeer(peerId);
     if (!voiceActive) return;
     if (event.code === 1008 || event.code === 1013) {
@@ -3938,7 +3950,10 @@ function renderParticipant(id, name, stream) {
   card.classList.toggle("speaking", speakingParticipants.has(id));
   const voiceParticipant = serverVoiceParticipants.find((participant) => participant.clientId === id);
   card.classList.toggle("is-ignored", ignoredUserIds.has(voiceParticipant?.id || id));
-  card.querySelector(".participant-avatar").textContent = getInitials(name);
+  const participantAvatar = card.querySelector(".participant-avatar");
+  const participantUser = id === "self" ? accountUser :
+    (voiceParticipant?.avatar ? voiceParticipant : serverMembers.find((member) => member.id === voiceParticipant?.id));
+  setAvatar(participantAvatar, participantUser || { username: name });
   const nameLabel = card.querySelector(".participant-name");
   const participantName = document.createElement("span");
   participantName.textContent = name;
@@ -4271,8 +4286,11 @@ function leaveRoom() {
     cameraTrack.stop();
     cameraTrack = undefined;
   }
-  socket?.close(1000, "Odadan ayrıldı");
+  const leavingSocket = socket;
+  socket = undefined;
   voiceActive = false;
+  reconnecting = false;
+  leavingSocket?.close(1000, "Odadan ayrıldı");
   document.querySelector(".dashboard-account").classList.remove("has-voice");
   closeChatConnection();
   activeChat = undefined;

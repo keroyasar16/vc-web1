@@ -1580,3 +1580,8 @@ body {
   .vc-invite-panel, dialog { box-sizing: border-box; max-width: calc(100vw - 24px); }
   .profile-avatar-upload { min-width: 0; }
 }
+
+/* Profile photos across voice tiles and channel participant lists */
+.participant-avatar.has-photo, .channel-participant-avatar.has-photo {
+  background-size: cover; background-position: center; background-repeat: no-repeat;
+}
