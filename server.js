@@ -249,6 +249,8 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         avatar: connection.presenceUserId
           ? store.users.find((user) => user.id === connection.presenceUserId)?.avatar || ""
           : "",
+        microphoneMuted: connection.voiceState?.microphoneMuted === true,
+        soundMuted: connection.voiceState?.soundMuted === true,
       });
     }
     return voiceParticipants;
@@ -2450,6 +2452,8 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         ) {
           return;
         }
+        webSocket.voiceState = { microphoneMuted: message.microphoneMuted, soundMuted: message.soundMuted };
+        if (webSocket.presenceServerId) publishServerMembers(webSocket.presenceServerId);
         const serialized = JSON.stringify({
           type: "voice-state",
           peerId: clientId,
@@ -2892,6 +2896,11 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
 
 if (require.main === module) {
   const port = Number(process.env.PORT) || 3000;
+  // Never silently create an empty account database on ephemeral Railway storage.
+  if (process.env.RAILWAY_ENVIRONMENT && !process.env.DATA_DIR) {
+    console.error("KALICI VERI HATASI: DATA_DIR tanımlı değil. Railway Volume bağlayıp DATA_DIR=/app/data ayarlayın.");
+    process.exit(1);
+  }
   const dataDirectory = process.env.DATA_DIR || (typeof process.pkg === "undefined"
     ? path.join(__dirname, "data")
     : path.join(path.dirname(process.execPath), "data"));
