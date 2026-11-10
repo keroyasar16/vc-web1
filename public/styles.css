@@ -1467,3 +1467,66 @@ body {
 .vc-invite-actions button { border:0; border-radius:8px; padding:10px 14px; background:#565cf5; color:white; cursor:pointer; }
 .vc-invite-actions button:last-child { background:#454653; }
 @media(max-width:600px) { .profile-avatar-upload { flex-direction:column; align-items:flex-start; } .vc-invite-actions button { flex:1; } .server-sidebar-actions { gap:3px; } }
+
+/* VC responsive mobile navigation: overrides legacy desktop grid */
+.mobile-nav-toggle, .mobile-nav-backdrop { display: none; }
+@media (max-width: 700px) {
+  html, body { max-width: 100%; overflow-x: hidden; }
+  input, textarea, select { font-size: 16px; }
+  .dashboard-view { inset: 0; height: 100dvh; min-height: 0; overflow: hidden; padding: 0; }
+  .discord-app-layout, .discord-app-layout.has-members {
+    display: grid; grid-template-columns: 54px minmax(0, 1fr); height: 100dvh;
+    min-height: 0; overflow: hidden;
+  }
+  .guild-rail { grid-column: 1; grid-row: 1; min-width: 0; padding: 10px 0 max(10px, env(safe-area-inset-bottom)); }
+  .guild-button { width: 42px; height: 42px; }
+  .guild-server-list { min-width: 0; }
+  .workspace-main { grid-column: 2 !important; grid-row: 1; min-width: 0; overflow-x: hidden; }
+  .server-sidebar {
+    position: fixed; z-index: 31; top: 0; bottom: 0; left: 54px;
+    width: min(310px, calc(100vw - 68px)); max-width: none;
+    transform: translateX(calc(-100% - 56px));
+    transition: transform .2s ease; box-shadow: 12px 0 35px rgba(0,0,0,.28);
+    visibility: hidden; pointer-events: none;
+  }
+  .discord-app-layout.mobile-nav-open .server-sidebar { transform: translateX(0); visibility: visible; pointer-events: auto; }
+  .mobile-nav-backdrop:not([hidden]) {
+    display: block; position: fixed; z-index: 30; inset: 0;
+    border: 0; background: rgba(0,0,0,.58); cursor: pointer;
+  }
+  .mobile-nav-toggle {
+    display: inline-grid; flex: 0 0 auto; place-items: center;
+    width: 40px; height: 40px; border: 1px solid #454751;
+    border-radius: 9px; background: #2b2d34; color: #f2f3f5;
+    font-size: 21px; cursor: pointer;
+  }
+  .workspace-topbar { gap: 9px; padding: 7px 10px; min-width: 0; }
+  .workspace-location { min-width: 0; overflow: hidden; }
+  .workspace-location > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .workspace-topbar-actions { flex-shrink: 0; }
+  .dashboard-content { min-width: 0; max-width: 100%; padding: 16px 12px 90px; overflow-x: hidden; }
+  .dashboard-heading { flex-wrap: wrap; gap: 12px; }
+  .dashboard-heading h1 { overflow-wrap: anywhere; }
+  .dashboard-create { max-width: 100%; }
+  .dashboard-view .server-list { grid-template-columns: minmax(0,1fr); }
+  .server-entry, .workspace-welcome, .friends-main-panel, .friends-layout { min-width: 0; max-width: 100%; }
+  .friends-tabs { max-width: 100%; overflow-x: auto; }
+  .create-server-dialog, dialog { max-width: calc(100vw - 20px); max-height: calc(100dvh - 24px); }
+  dialog form { max-height: calc(100dvh - 40px); overflow-y: auto; }
+  .dialog-actions { flex-wrap: wrap; }
+  .dialog-actions > button { min-height: 42px; }
+  .server-sidebar-actions { gap: 2px; flex-wrap: nowrap; }
+  .sidebar-action-button { width: 31px; height: 36px; }
+  .dashboard-account { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+  .account-call-controls { flex-wrap: wrap; }
+  .media-quality-select { max-width: 100%; }
+  .server-members { width: min(290px, calc(100vw - 54px)); z-index: 35; }
+}
+@media (max-width: 380px) {
+  .dashboard-content { padding-inline: 9px; }
+  .workspace-topbar { padding-inline: 7px; }
+  .workspace-location { font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .server-sidebar { transition: none; }
+}
