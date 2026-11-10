@@ -224,6 +224,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         id: user.id,
         username: user.username,
         nickname: serverRecord.nicknames?.[user.id] || "",
+        avatar: user.avatar || "",
         isOnline: isUserOnline(user.id),
       }));
   }
@@ -232,7 +233,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
     const serverRecord = store.servers.find((server) => server.id === serverId);
     const connections = serverConnections.get(serverId) || [];
     const voiceConnections = Array.from(connections)
-      .filter((connection) => connection.presenceKind === "voice" && connection.clientId);
+      .filter((connection) => connection.presenceKind === "voice" && connection.clientId && connection.presenceUserId && connection.readyState === WebSocket.OPEN);
     const voiceParticipants = [];
     const seenUsers = new Set();
     for (const connection of voiceConnections) {
@@ -245,6 +246,9 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
           ? serverRecord?.nicknames?.[connection.presenceUserId] || connection.displayName
           : connection.displayName,
         channelId: connection.channelId,
+        avatar: connection.presenceUserId
+          ? store.users.find((user) => user.id === connection.presenceUserId)?.avatar || ""
+          : "",
       });
     }
     return voiceParticipants;
@@ -2394,7 +2398,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       peer.send(JSON.stringify({ type: "peer-joined", peer: { id: clientId, name } }));
     }
     room.set(clientId, webSocket);
-    if (serverId) registerServerConnection(webSocket, serverId, undefined, "voice");
+    if (serverId) registerServerConnection(webSocket, serverId, undefined, "voice", false);
     webSocket.on("message", (rawMessage) => {
       let message;
       try {
@@ -2423,6 +2427,14 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
             return;
           }
           clearTimeout(webSocket.channelAccessTimer);
+          // A user may have only one active voice connection in this server.
+          // Terminate stale connections so reconnects cannot leave ghost peers.
+          for (const other of Array.from(serverConnections.get(serverId) || [])) {
+            if (other !== webSocket && other.presenceKind === "voice" &&
+                other.presenceUserId === user.id && other.readyState !== WebSocket.CLOSED) {
+              other.terminate();
+            }
+          }
           setConnectionUser(webSocket, user.id);
           publishServerMembers(serverId);
         }
