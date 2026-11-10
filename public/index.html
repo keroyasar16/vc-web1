@@ -103,7 +103,7 @@
             <div id="guild-server-list" class="guild-server-list" aria-label="Sunucular"></div>
             <button id="guild-create-server" class="guild-button guild-add" type="button" aria-label="Sunucu kur">＋</button>
           </nav>
-          <aside class="server-sidebar" aria-label="Sunucu gezinme">
+          <aside class="server-sidebar" id="mobile-nav-panel" aria-label="Sunucu gezinme">
             <header class="server-sidebar-header">
               <span>Sunucuların</span><span aria-hidden="true">⌄</span>
               <div class="server-sidebar-actions">
@@ -156,9 +156,11 @@
               <button id="logout-button" class="text-button" type="button">Çıkış yap</button>
             </footer>
           </aside>
+          <button id="mobile-nav-backdrop" class="mobile-nav-backdrop" type="button" aria-label="Menüyü kapat" hidden></button>
           <div id="sidebar-resize-handle" class="sidebar-resize-handle" role="separator" aria-label="Sunucu listesinin genişliğini ayarla" aria-orientation="vertical" aria-valuemin="180" aria-valuemax="420" aria-valuenow="250" tabindex="0"></div>
           <main class="workspace-main">
             <header class="workspace-topbar">
+              <button id="mobile-nav-toggle" class="mobile-nav-toggle" type="button" aria-label="Sunucu ve kanal menüsünü aç" aria-expanded="false" aria-controls="mobile-nav-panel">☰</button>
               <div class="workspace-location"><span aria-hidden="true">◖</span><span>Sesli odalar</span></div>
               <div class="workspace-topbar-actions">
                 <span class="workspace-online"><span class="status-dot"></span> Tarayıcında, anında</span>
@@ -512,5 +514,6 @@
 
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </main>
+    <script src="mobile-nav.js" defer></script>
   </body>
 </html>
