@@ -251,6 +251,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
           : "",
         microphoneMuted: connection.voiceState?.microphoneMuted === true,
         soundMuted: connection.voiceState?.soundMuted === true,
+        sharing: connection.voiceState?.sharing === true,
       });
     }
     return voiceParticipants;
@@ -2454,7 +2455,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         ) {
           return;
         }
-        webSocket.voiceState = { microphoneMuted: message.microphoneMuted, soundMuted: message.soundMuted };
+        webSocket.voiceState = { microphoneMuted: message.microphoneMuted, soundMuted: message.soundMuted, sharing: message.sharing };
         if (webSocket.presenceServerId && webSocket.presenceUserId) publishServerMembers(webSocket.presenceServerId);
         const serialized = JSON.stringify({
           type: "voice-state",
