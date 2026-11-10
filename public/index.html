@@ -109,6 +109,7 @@
               <div class="server-sidebar-actions">
                 <button id="create-server-invite" class="sidebar-action-button" type="button" title="Seçili sunucu için davet kodu oluştur" aria-label="Seçili sunucu için davet kodu oluştur" disabled>↗</button>
                 <button id="open-server-roles" class="sidebar-action-button" type="button" title="Roller ve yetkiler" aria-label="Roller ve yetkiler" disabled>♙</button>
+                <button id="leave-selected-server" class="sidebar-action-button server-leave-action" type="button" title="Seçili sunucudan ayrıl" aria-label="Seçili sunucudan ayrıl" disabled>⇥</button>
                 <button id="open-server-settings" class="sidebar-action-button" type="button" title="Sunucu ayarları" aria-label="Sunucu ayarları" disabled>⚙</button>
               </div>
             </header>
@@ -485,6 +486,15 @@
           <div class="profile-edit-heading">
             <span id="profile-edit-avatar" class="account-avatar"></span>
             <div><p class="eyebrow">PROFİL</p><h2 id="profile-edit-title">Profili düzenle</h2></div>
+          </div>
+          <label for="profile-avatar-input">Profil fotoğrafı</label>
+          <div class="profile-avatar-upload">
+            <span id="profile-avatar-preview" class="account-avatar" aria-label="Profil fotoğrafı önizlemesi"></span>
+            <div class="profile-avatar-actions">
+              <input id="profile-avatar-input" type="file" accept="image/png,image/jpeg,image/webp">
+              <button id="profile-avatar-remove" class="settings-secondary-button" type="button">Fotoğrafı kaldır</button>
+              <small>PNG, JPEG veya WebP. Fotoğraf otomatik küçültülür.</small>
+            </div>
           </div>
           <label for="profile-edit-username">Görünen ad</label>
           <input id="profile-edit-username" name="username" type="text" minlength="3" maxlength="24" autocomplete="nickname" required>
