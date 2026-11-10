@@ -1590,3 +1590,22 @@ body {
 .channel-participant .participant-status-icons { margin-left: auto; flex-shrink: 0; }
 .channel-participant .participant-status-icon { color: #f06b71; width: 16px; height: 16px; }
 .channel-participant-avatar.has-photo, .server-member-avatar.has-photo, .participant-avatar.has-photo { background-size: cover !important; background-position: center !important; background-repeat: no-repeat !important; }
+
+/* Profile popup: banner, avatar and identity share the same positioning context. */
+.member-profile-dialog .member-profile-header { position: relative; min-height: 98px; margin-bottom: 8px; }
+.member-profile-dialog .member-profile-banner { height: 112px; }
+.member-profile-dialog .member-profile-avatar {
+  position: absolute; top: 76px; left: 16px; bottom: auto;
+  width: 72px; height: 72px; box-sizing: border-box;
+  border: 5px solid #2b2d31; border-radius: 50%;
+  display: grid; place-items: center; background-color: #5865f2;
+  background-size: cover; background-position: center; background-repeat: no-repeat;
+  z-index: 2;
+}
+.member-profile-dialog .member-profile-identity {
+  padding: 18px 16px 16px 104px; min-height: 70px;
+  display: flex; flex-direction: column; justify-content: center;
+}
+.member-profile-dialog .member-profile-status { margin-top: 5px; }
+.channel-participant .participant-status-icons { margin-left: auto; }
+.channel-participant .participant-status-icon { width: 17px; height: 17px; color: #f06b72; }

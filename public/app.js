@@ -207,6 +207,34 @@ function playNotificationSound() {
   oscillator.stop(startTime + 0.29);
 }
 
+// Original, short synthesized UI cues; no external audio files are needed.
+const VC_CUES = {
+  join: [[523, 0, .10], [784, .105, .13]],
+  otherJoin: [[660, 0, .075], [880, .08, .11]],
+  leave: [[660, 0, .085], [392, .09, .15]],
+  share: [[440, 0, .075], [660, .08, .075], [988, .16, .15]],
+  mention: [[880, 0, .09], [1175, .13, .17]],
+};
+function playVcCue(kind) {
+  prepareNotificationAudio();
+  const context = notificationAudioContext;
+  if (!context || context.state !== "running") return;
+  const start = context.currentTime + .008;
+  for (const [frequency, offset, duration] of VC_CUES[kind] || []) {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(frequency, start + offset);
+    gain.gain.setValueAtTime(.0001, start + offset);
+    gain.gain.exponentialRampToValueAtTime(.075, start + offset + .012);
+    gain.gain.exponentialRampToValueAtTime(.0001, start + offset + duration);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(start + offset);
+    oscillator.stop(start + offset + duration + .01);
+  }
+}
+
 document.querySelector("#guild-home").addEventListener("click", () => {
   showFriendsView();
   acknowledgeNotifications().catch((error) => showToast(error.message));
@@ -689,7 +717,8 @@ function connectPresence() {
       subscribeToSelectedServerPresence();
     } else if (message.type === "notification") {
       if (!message.notification?.id || notifications.some((item) => item.id === message.notification.id)) return;
-      playNotificationSound();
+      if (message.notification.type === "mention") playVcCue("mention");
+      else playNotificationSound();
       notifications.push(message.notification);
       unreadNotificationCount += 1;
       updateNotificationBadge();
@@ -2489,8 +2518,10 @@ function renderChannelParticipants(list, server, channel) {
     participantName.textContent = name;
     // Presence snapshots carry voice status even when this client is not in the voice channel.
     const state = {
-      microphoneMuted: member.microphoneMuted === true,
-      soundMuted: member.soundMuted === true,
+      microphoneMuted: member.id === accountUser?.id && voiceActive && currentServer?.id === server.id && currentChannel?.id === channel.id
+        ? getParticipantState("self").microphoneMuted : member.microphoneMuted === true,
+      soundMuted: member.id === accountUser?.id && voiceActive && currentServer?.id === server.id && currentChannel?.id === channel.id
+        ? soundMuted : member.soundMuted === true,
       sharing: false, camera: false,
     };
     participant.append(avatar, participantName, createParticipantIndicators(state));
@@ -2993,7 +3024,8 @@ async function showMemberProfile(target) {
   identity.className = "member-profile-identity";
   const avatar = document.createElement("span");
   avatar.className = "server-member-avatar";
-  avatar.textContent = getInitials(profile.username);
+  avatar.classList.add("member-profile-avatar");
+  setAvatar(avatar, profile);
   const title = document.createElement("h2");
   title.id = "member-profile-title";
   title.textContent = profile.username;
@@ -3749,7 +3781,9 @@ function connectToRoom() {
     reconnecting = false;
     roomNotice.hidden = true;
   });
+  const voiceMessageSocket = socket;
   socket.addEventListener("message", ({ data }) => {
+    if (socket !== voiceMessageSocket) return;
     const message = JSON.parse(data);
     if (message.type === "server-members") {
       updateServerMemberPresence(message);
@@ -3761,11 +3795,13 @@ function connectToRoom() {
         createPeerConnection(peer.id, peer.name, false);
       }
       updateParticipantCount();
+      playVcCue("join");
     } else if (message.type === "peer-joined") {
       participantNames.set(message.peer.id, message.peer.name);
       participantStates.set(message.peer.id, { microphoneMuted: false, soundMuted: false, sharing: false, camera: false });
       createPeerConnection(message.peer.id, message.peer.name, true);
       updateParticipantCount();
+      playVcCue("otherJoin");
       showToast(`${message.peer.name} odaya katıldı`);
     } else if (message.type === "voice-state") {
       participantStates.set(message.peerId, {
@@ -4203,6 +4239,7 @@ shareButton.addEventListener("click", async () => {
     shareButton.title = "Ekran paylaşımını durdur";
     renderParticipant("self", displayName, localStream);
     publishVoiceState();
+    playVcCue("share");
   } catch (error) {
     if (error.name !== "NotAllowedError") showToast("Ekran paylaşımı başlatılamadı.");
   }
@@ -4284,6 +4321,7 @@ document.querySelector("#copy-invite").addEventListener("click", async () => {
 });
 
 function leaveRoom() {
+  if (voiceActive) playVcCue("leave");
   if (screenTrack) stopScreenShare();
   if (cameraTrack) {
     cameraTrack.stop();
@@ -4313,10 +4351,11 @@ function leaveRoom() {
   participantStates.clear();
   participantStreams.clear();
   participantVideoTracks.clear();
+  const previousClientId = clientId;
   clientId = undefined;
   currentRoom = undefined;
   if (currentServer && currentChannel && serverVoiceParticipantsServerId === currentServer.id) {
-    serverVoiceParticipants = serverVoiceParticipants.filter((p) => p.id !== accountUser?.id && p.clientId !== clientId);
+    serverVoiceParticipants = serverVoiceParticipants.filter((p) => p.id !== accountUser?.id && p.clientId !== previousClientId);
   }
   currentServer = undefined;
   currentChannel = undefined;
