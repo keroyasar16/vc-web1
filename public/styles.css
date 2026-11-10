@@ -1585,3 +1585,8 @@ body {
 .participant-avatar.has-photo, .channel-participant-avatar.has-photo {
   background-size: cover; background-position: center; background-repeat: no-repeat;
 }
+
+/* Muted microphone status must be visible next to the name in compact channel rows. */
+.channel-participant .participant-status-icons { margin-left: auto; flex-shrink: 0; }
+.channel-participant .participant-status-icon { color: #f06b71; width: 16px; height: 16px; }
+.channel-participant-avatar.has-photo, .server-member-avatar.has-photo, .participant-avatar.has-photo { background-size: cover !important; background-position: center !important; background-repeat: no-repeat !important; }

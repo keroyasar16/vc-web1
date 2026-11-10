@@ -86,6 +86,7 @@ let chatReady = false;
 let serverMembers = [];
 let serverVoiceParticipants = [];
 let serverVoiceParticipantsServerId;
+let serverRosterRevision = 0;
 let globallyOnlineUsers = [];
 let accountUser;
 let selectedServer;
@@ -1991,9 +1992,10 @@ function showServerNavigation(server) {
 }
 
 async function loadServerRoster(server) {
+  const revisionAtRequest = serverRosterRevision;
   try {
     const result = await apiRequest(`/api/servers/${server.id}/members`);
-    if (selectedServer?.id !== server.id) return;
+    if (selectedServer?.id !== server.id || revisionAtRequest !== serverRosterRevision) return;
     serverMembers = result.members;
     serverVoiceParticipants = result.voiceParticipants;
     serverVoiceParticipantsServerId = server.id;
@@ -2465,11 +2467,8 @@ function renderChannelParticipants(list, server, channel) {
   const participants = server.id === serverVoiceParticipantsServerId
     ? serverVoiceParticipants.filter((participant) => participant.channelId === channel.id)
     : [];
-  const visibleParticipants = participants.length
-    ? participants
-    : voiceActive && currentServer?.id === server.id && currentChannel?.id === channel.id
-      ? Array.from(participantNames, ([id, username]) => ({ clientId: id, username }))
-      : [];
+  // The server snapshot is authoritative. Never resurrect peers from stale local maps.
+  const visibleParticipants = participants;
   list.hidden = visibleParticipants.length === 0;
   for (const member of visibleParticipants) {
     const participantId = member.clientId;
@@ -2489,9 +2488,11 @@ function renderChannelParticipants(list, server, channel) {
     participantName.className = "channel-participant-name";
     participantName.textContent = name;
     // Presence snapshots carry voice status even when this client is not in the voice channel.
-    const state = participantStates.has(participantId)
-      ? getParticipantState(participantId)
-      : { microphoneMuted: member.microphoneMuted === true, soundMuted: member.soundMuted === true, sharing: false, camera: false };
+    const state = {
+      microphoneMuted: member.microphoneMuted === true,
+      soundMuted: member.soundMuted === true,
+      sharing: false, camera: false,
+    };
     participant.append(avatar, participantName, createParticipantIndicators(state));
     list.append(participant);
   }
@@ -2499,6 +2500,7 @@ function renderChannelParticipants(list, server, channel) {
 
 function updateServerMemberPresence(message) {
   if (message.serverId !== currentServer?.id && message.serverId !== selectedServer?.id) return;
+  serverRosterRevision += 1;
   serverMembers = Array.isArray(message.members) ? message.members : [];
   serverVoiceParticipants = Array.isArray(message.voiceParticipants) ? message.voiceParticipants : [];
   serverVoiceParticipantsServerId = message.serverId;
@@ -3957,7 +3959,8 @@ function renderParticipant(id, name, stream) {
   const nameLabel = card.querySelector(".participant-name");
   const participantName = document.createElement("span");
   participantName.textContent = name;
-  nameLabel.replaceChildren(participantName, createParticipantIndicators(getParticipantState(id)));
+  const snapshotState = voiceParticipant && { microphoneMuted: voiceParticipant.microphoneMuted === true, soundMuted: voiceParticipant.soundMuted === true, sharing: false, camera: false };
+  nameLabel.replaceChildren(participantName, createParticipantIndicators(id === "self" ? getParticipantState(id) : (participantStates.get(id) || snapshotState || getParticipantState(id))));
   const state = getParticipantState(id);
   const tracks = participantVideoTracks.get(id) || {};
   const screenVideoTrack = state.sharing ? tracks.screen : undefined;
@@ -4312,6 +4315,9 @@ function leaveRoom() {
   participantVideoTracks.clear();
   clientId = undefined;
   currentRoom = undefined;
+  if (currentServer && currentChannel && serverVoiceParticipantsServerId === currentServer.id) {
+    serverVoiceParticipants = serverVoiceParticipants.filter((p) => p.id !== accountUser?.id && p.clientId !== clientId);
+  }
   currentServer = undefined;
   currentChannel = undefined;
   renderServers();
