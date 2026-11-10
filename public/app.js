@@ -1942,13 +1942,14 @@ async function handleServerInviteSubmit(form) {
   const button = form.querySelector("button");
   button.disabled = true;
   try {
+    let inviteCode = form.elements.inviteCode.value.trim();
     try {
-    const parsed = new URL(inviteCode);
-    inviteCode = parsed.searchParams.get("invite") || inviteCode;
-  } catch { /* Zaten kod girilmiş */ }
-  const result = await apiRequest("/api/servers/join", {
+      const parsed = new URL(inviteCode);
+      inviteCode = parsed.searchParams.get("invite") || inviteCode;
+    } catch { /* Kod veya sunucu adı girildi. */ }
+    const result = await apiRequest("/api/servers/join", {
       method: "POST",
-      body: { inviteCode: form.elements.inviteCode.value.trim() },
+      body: { inviteCode },
     });
     servers.set(result.server.id, result.server);
     selectedServer = result.server;
@@ -3584,7 +3585,7 @@ chatForm.addEventListener("submit", (event) => {
   chatInput.value = "";
 });
 
-function showInviteLinkDialog(link, inviteCode = "") {
+function showInviteCodeDialog(inviteCode, serverName) {
   const overlay = document.createElement("div");
   overlay.className = "vc-invite-overlay";
   const panel = document.createElement("div");
@@ -3592,44 +3593,32 @@ function showInviteLinkDialog(link, inviteCode = "") {
   const title = document.createElement("h2");
   title.textContent = "Sunucu daveti";
   const description = document.createElement("p");
-  description.textContent = "Aşağıdaki kodu, VC uygulamasındaki 'Davet koduyla katıl' alanına gir.";
+  description.textContent = `“${serverName}” sunucusuna katılmak için bu kodu veya sunucu adını gir.`;
   const code = document.createElement("input");
   code.readOnly = true;
   code.value = inviteCode;
-  code.setAttribute("aria-label", "Davet kodu");
-  const linkField = document.createElement("input");
-  linkField.readOnly = true;
-  linkField.value = link;
-  linkField.setAttribute("aria-label", "Davet bağlantısı");
+  code.setAttribute("aria-label", "7 karakterlik davet kodu");
   const buttons = document.createElement("div");
   buttons.className = "vc-invite-actions";
   const copyCode = document.createElement("button");
   copyCode.textContent = "Kodu kopyala";
-  const copyLink = document.createElement("button");
-  copyLink.textContent = "Bağlantıyı kopyala";
   const close = document.createElement("button");
   close.textContent = "Kapat";
-  async function copy(value, input) {
-    try { await navigator.clipboard.writeText(value); showToast("Kopyalandı"); }
-    catch { input.focus(); input.select(); showToast("Ctrl+C ile kopyalayabilirsin."); }
-  }
-  copyCode.onclick = () => copy(inviteCode, code);
-  copyLink.onclick = () => copy(link, linkField);
+  copyCode.onclick = async () => {
+    try { await navigator.clipboard.writeText(inviteCode); showToast("Davet kodu kopyalandı"); }
+    catch { code.focus(); code.select(); showToast("Ctrl+C ile kopyalayabilirsin."); }
+  };
   close.onclick = () => overlay.remove();
-  overlay.addEventListener("click", event => { if (event.target === overlay) overlay.remove(); });
-  buttons.append(copyCode, copyLink, close);
-  panel.append(title, description, code, linkField, buttons);
+  overlay.addEventListener("click", (event) => { if (event.target === overlay) overlay.remove(); });
+  buttons.append(copyCode, close);
+  panel.append(title, description, code, buttons);
   overlay.append(panel);
   document.body.append(overlay);
   code.focus(); code.select();
 }
 
-async function copyServerInvite(server, channel = server.channels[0]) {
-  const inviteUrl = new URL("/", location.origin);
-  inviteUrl.searchParams.set("invite", server.inviteCode);
-  if (channel) inviteUrl.searchParams.set("channel", channel.id);
-  // Davet kodu alanına URL değil, yalnızca sunucunun gerçek davet kodu girilir.
-  showInviteLinkDialog(inviteUrl.href, server.inviteCode);
+async function copyServerInvite(server) {
+  showInviteCodeDialog(server.inviteCode, server.name);
 }
 
 async function joinServerByCode(inviteCode) {
