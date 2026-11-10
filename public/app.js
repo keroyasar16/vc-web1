@@ -1031,6 +1031,14 @@ authForm.addEventListener("submit", async (event) => {
   }
 });
 
+function setAvatar(element, user) {
+  if (!element) return;
+  const avatar = user?.avatar || "";
+  element.textContent = avatar ? "" : getInitials(user?.username || "");
+  element.style.backgroundImage = avatar ? `url("${avatar}")` : "";
+  element.classList.toggle("has-photo", Boolean(avatar));
+}
+
 function showAccount() {
   landing.hidden = true;
   dashboard.hidden = false;
@@ -1042,7 +1050,7 @@ function showAccount() {
   topbar.hidden = true;
   authOptions.hidden = true;
   document.querySelector("#account-name").textContent = accountUser.username;
-  document.querySelector("#account-avatar").textContent = getInitials(accountUser.username);
+  setAvatar(document.querySelector("#account-avatar"), accountUser);
   document.querySelector("#open-user-settings").setAttribute("aria-label", `Kullanıcı ayarları: ${accountUser.username}`);
   displayName = accountUser.username;
   restoreIgnoredUsers();
@@ -1203,10 +1211,44 @@ function formatMemberDate(value) {
   });
 }
 
+let pendingProfileAvatar = "";
+const profileAvatarInput = document.querySelector("#profile-avatar-input");
+profileAvatarInput.addEventListener("change", async () => {
+  const file = profileAvatarInput.files?.[0];
+  if (!file) return;
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+    showToast("PNG, JPEG veya WebP seç. Dosya 5 MB'dan küçük olmalı.");
+    profileAvatarInput.value = "";
+    return;
+  }
+  try {
+    const image = await createImageBitmap(file);
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 160;
+    const context = canvas.getContext("2d");
+    const side = Math.min(image.width, image.height);
+    context.drawImage(image, (image.width-side)/2, (image.height-side)/2, side, side, 0, 0, 160, 160);
+    image.close();
+    pendingProfileAvatar = canvas.toDataURL("image/jpeg", .75);
+    setAvatar(document.querySelector("#profile-avatar-preview"), { avatar: pendingProfileAvatar });
+    setAvatar(document.querySelector("#profile-edit-avatar"), { avatar: pendingProfileAvatar });
+  } catch { showToast("Fotoğraf işlenemedi. Başka bir görsel dene."); }
+});
+document.querySelector("#profile-avatar-remove").addEventListener("click", () => {
+  pendingProfileAvatar = "";
+  profileAvatarInput.value = "";
+  const profile = { username: profileEditForm.elements.username.value };
+  setAvatar(document.querySelector("#profile-avatar-preview"), profile);
+  setAvatar(document.querySelector("#profile-edit-avatar"), profile);
+});
+
 function openProfileEditor(profile) {
+  profileAvatarInput.value = "";
   profileEditForm.elements.username.value = profile.username || "";
   profileEditForm.elements.bio.value = profile.bio || "";
-  document.querySelector("#profile-edit-avatar").textContent = getInitials(profile.username || "");
+  pendingProfileAvatar = profile.avatar || "";
+  setAvatar(document.querySelector("#profile-edit-avatar"), profile);
+  setAvatar(document.querySelector("#profile-avatar-preview"), profile);
   document.querySelector("#profile-edit-joined").textContent = formatMemberDate(profile.createdAt);
   profileEditDialog.showModal();
   profileEditForm.elements.username.focus();
@@ -1227,6 +1269,7 @@ profileEditForm.addEventListener("submit", async (event) => {
       body: {
         username: profileEditForm.elements.username.value.trim(),
         bio: profileEditForm.elements.bio.value.trim(),
+        avatar: pendingProfileAvatar,
       },
     });
     accountUser = { ...accountUser, ...result.profile };
@@ -1869,7 +1912,11 @@ async function handleServerInviteSubmit(form) {
   const button = form.querySelector("button");
   button.disabled = true;
   try {
-    const result = await apiRequest("/api/servers/join", {
+    try {
+    const parsed = new URL(inviteCode);
+    inviteCode = parsed.searchParams.get("invite") || inviteCode;
+  } catch { /* Zaten kod girilmiş */ }
+  const result = await apiRequest("/api/servers/join", {
       method: "POST",
       body: { inviteCode: form.elements.inviteCode.value.trim() },
     });
@@ -1907,6 +1954,7 @@ function renderServers() {
   inviteButton.disabled = !(selectedServer?.canCreateInvite || activeInviteChannel?.canCreateInvite);
   settingsButton.disabled = !canManageSelectedServer;
   rolesButton.disabled = !selectedServer?.canManageRoles;
+  document.querySelector("#leave-selected-server").disabled = !selectedServer || selectedServer.canDelete || !accountUser;
   inviteButton.title = selectedServer
     ? `${selectedServer.name} için yeni davet kodu oluştur`
     : "Sunucu seç";
@@ -1981,6 +2029,27 @@ function renderGuildServers() {
     guildList.append(button);
   }
 }
+
+document.querySelector("#leave-selected-server").addEventListener("click", async (event) => {
+  const server = selectedServer;
+  if (!server || server.canDelete || !accountUser) return;
+  if (!window.confirm(`“${server.name}” sunucusundan ayrılmak istiyor musun?`)) return;
+  event.currentTarget.disabled = true;
+  try {
+    await apiRequest(`/api/servers/${server.id}/leave`, { method: "POST" });
+    if (currentServer?.id === server.id) leaveRoom();
+    if (activeChat?.server.id === server.id) {
+      closeChatConnection(); activeChat = undefined; chatView.hidden = true; dashboardContent.hidden = false;
+    }
+    servers.delete(server.id);
+    if (selectedServer?.id === server.id) selectedServer = undefined;
+    renderServers();
+    if (selectedServer) showServerNavigation(selectedServer);
+    else document.querySelector(".workspace-location span:last-child").textContent = "Sunucuların";
+    showToast("Sunucudan ayrıldın");
+  } catch (error) { showToast(error.message); }
+  finally { renderServers(); }
+});
 
 document.querySelector("#create-server-invite").addEventListener("click", async () => {
   if (!selectedServer) return;
@@ -3467,58 +3536,50 @@ chatForm.addEventListener("submit", (event) => {
 
 function showInviteLinkDialog(link, inviteCode = "") {
   const overlay = document.createElement("div");
-  overlay.style.cssText = "position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:20px";
+  overlay.className = "vc-invite-overlay";
   const panel = document.createElement("div");
-  panel.style.cssText = "width:min(100%,480px);background:#303139;color:#fff;padding:24px;border-radius:14px;box-shadow:0 20px 60px #0008;font:14px sans-serif";
-  const heading = document.createElement("h2");
-  heading.textContent = "Davet bağlantısı";
-  heading.style.cssText = "margin:0 0 12px;font-size:20px";
-  const info = document.createElement("p");
-  info.textContent = inviteCode ? `Davet kodu: ${inviteCode}` : "Bağlantıyı arkadaşınla paylaş.";
-  info.style.cssText = "overflow-wrap:anywhere";
-  const field = document.createElement("textarea");
-  field.value = link;
-  field.readOnly = true;
-  field.setAttribute("aria-label", "Davet bağlantısı");
-  field.style.cssText = "box-sizing:border-box;width:100%;height:85px;background:#1c1d23;color:white;border:1px solid #666;border-radius:8px;padding:10px;resize:none";
+  panel.className = "vc-invite-panel";
+  const title = document.createElement("h2");
+  title.textContent = "Sunucu daveti";
+  const description = document.createElement("p");
+  description.textContent = "Aşağıdaki kodu, VC uygulamasındaki 'Davet koduyla katıl' alanına gir.";
+  const code = document.createElement("input");
+  code.readOnly = true;
+  code.value = inviteCode;
+  code.setAttribute("aria-label", "Davet kodu");
+  const linkField = document.createElement("input");
+  linkField.readOnly = true;
+  linkField.value = link;
+  linkField.setAttribute("aria-label", "Davet bağlantısı");
   const buttons = document.createElement("div");
-  buttons.style.cssText = "display:flex;gap:10px;justify-content:flex-end;margin-top:15px";
-  const copy = document.createElement("button");
-  copy.textContent = "Kopyala";
+  buttons.className = "vc-invite-actions";
+  const copyCode = document.createElement("button");
+  copyCode.textContent = "Kodu kopyala";
+  const copyLink = document.createElement("button");
+  copyLink.textContent = "Bağlantıyı kopyala";
   const close = document.createElement("button");
   close.textContent = "Kapat";
-  for (const btn of [copy, close]) btn.style.cssText = "border:0;border-radius:8px;padding:10px 16px;cursor:pointer;background:#565cf5;color:#fff";
+  async function copy(value, input) {
+    try { await navigator.clipboard.writeText(value); showToast("Kopyalandı"); }
+    catch { input.focus(); input.select(); showToast("Ctrl+C ile kopyalayabilirsin."); }
+  }
+  copyCode.onclick = () => copy(inviteCode, code);
+  copyLink.onclick = () => copy(link, linkField);
   close.onclick = () => overlay.remove();
-  copy.onclick = async () => {
-    try {
-      await navigator.clipboard.writeText(link);
-      showToast("Davet bağlantısı kopyalandı");
-      overlay.remove();
-    } catch {
-      field.focus();
-      field.select();
-      showToast("Bağlantı seçildi. Ctrl+C ile kopyalayabilirsin.");
-    }
-  };
-  overlay.addEventListener("click", (event) => { if (event.target === overlay) overlay.remove(); });
-  buttons.append(copy, close);
-  panel.append(heading, info, field, buttons);
+  overlay.addEventListener("click", event => { if (event.target === overlay) overlay.remove(); });
+  buttons.append(copyCode, copyLink, close);
+  panel.append(title, description, code, linkField, buttons);
   overlay.append(panel);
   document.body.append(overlay);
-  field.focus();
-  field.select();
+  code.focus(); code.select();
 }
 
 async function copyServerInvite(server, channel = server.channels[0]) {
-  const inviteUrl = new URL("/", location.href);
+  const inviteUrl = new URL("/", location.origin);
   inviteUrl.searchParams.set("invite", server.inviteCode);
   if (channel) inviteUrl.searchParams.set("channel", channel.id);
-  try {
-    await navigator.clipboard.writeText(inviteUrl.href);
-    showToast("Sunucu davet bağlantısı kopyalandı");
-  } catch {
-    showInviteLinkDialog(inviteUrl.href, server.inviteCode);
-  }
+  // Davet kodu alanına URL değil, yalnızca sunucunun gerçek davet kodu girilir.
+  showInviteLinkDialog(inviteUrl.href, server.inviteCode);
 }
 
 async function joinServerByCode(inviteCode) {

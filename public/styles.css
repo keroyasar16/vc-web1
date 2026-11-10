@@ -1446,3 +1446,24 @@ body {
 .password-recovery-form label { display:block; margin: 12px 0 7px; font-size: 12px; }
 .password-recovery-form input { width:100%; min-height:40px; }
 [hidden] { display:none !important; }
+
+/* VC arayüz düzeltmeleri */
+.server-sidebar-actions { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+.server-leave-action:not(:disabled) { color:#ffb6b6; }
+.server-leave-action:not(:disabled):hover { background:rgba(240,80,90,.17); }
+.profile-avatar-upload { display:flex; align-items:center; gap:16px; padding:14px; background:#24262e; border:1px solid #41434a; border-radius:12px; margin-bottom:14px; }
+.profile-avatar-upload .account-avatar { flex:0 0 72px; width:72px; height:72px; border-radius:50%; display:grid; place-items:center; font-size:22px; }
+.profile-avatar-actions { display:grid; gap:8px; min-width:0; flex:1; }
+.profile-avatar-actions input { max-width:100%; font-size:12px; }
+.profile-avatar-actions small { color:#b9bac9; line-height:1.5; }
+.account-avatar.has-photo, .friend-avatar.has-photo, .server-member-avatar.has-photo { background-size:cover; background-position:center; background-repeat:no-repeat; }
+.vc-invite-overlay { position:fixed; inset:0; z-index:999999; background:rgba(0,0,0,.78); display:flex; align-items:center; justify-content:center; padding:20px; }
+.vc-invite-panel { box-sizing:border-box; width:min(100%,500px); background:#303139; border:1px solid #55576a; color:#f3f4ff; padding:24px; border-radius:16px; box-shadow:0 20px 60px #0009; }
+.vc-invite-panel h2 { margin:0 0 12px; font-size:21px; }
+.vc-invite-panel p { color:#c9cad8; line-height:1.55; }
+.vc-invite-panel input { box-sizing:border-box; display:block; width:100%; min-width:0; margin:10px 0; padding:12px; border:1px solid #606276; border-radius:8px; background:#1c1d23; color:white; font-size:13px; }
+.vc-invite-panel input:first-of-type { font-family:monospace; letter-spacing:.04em; }
+.vc-invite-actions { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; margin-top:18px; }
+.vc-invite-actions button { border:0; border-radius:8px; padding:10px 14px; background:#565cf5; color:white; cursor:pointer; }
+.vc-invite-actions button:last-child { background:#454653; }
+@media(max-width:600px) { .profile-avatar-upload { flex-direction:column; align-items:flex-start; } .vc-invite-actions button { flex:1; } .server-sidebar-actions { gap:3px; } }
