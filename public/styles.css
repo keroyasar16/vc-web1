@@ -1530,3 +1530,53 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .server-sidebar { transition: none; }
 }
+
+
+/* Mobile layout hotfix v2: keep content in viewport and use independent drawers. */
+@media (max-width: 700px) {
+  :root { --vc-rail-width: 56px; }
+  html, body { width: 100%; max-width: 100%; margin: 0; overflow-x: clip; }
+  #dashboard.dashboard-view { position: fixed; inset: 0; width: 100vw; max-width: 100vw; height: 100dvh; overflow: hidden; }
+  #dashboard .discord-app-layout,
+  #dashboard .discord-app-layout.has-members,
+  #dashboard .discord-app-layout.members-open,
+  #dashboard .discord-app-layout.has-members.members-open {
+    display: grid !important;
+    grid-template-columns: var(--vc-rail-width) minmax(0, 1fr) !important;
+    grid-template-rows: minmax(0, 1fr) !important;
+    width: 100% !important; max-width: 100vw !important;
+    height: 100dvh !important; min-height: 0 !important;
+    overflow: hidden !important;
+  }
+  #dashboard .guild-rail { grid-column: 1 !important; grid-row: 1 !important; width: var(--vc-rail-width) !important; min-width: 0 !important; height: 100%; overflow-x: hidden; }
+  #dashboard .workspace-main { grid-column: 2 !important; grid-row: 1 !important; width: 100% !important; min-width: 0 !important; max-width: 100% !important; height: 100% !important; overflow-x: hidden !important; overflow-y: auto; }
+  #dashboard .sidebar-resize-handle { display: none !important; }
+  #dashboard .server-sidebar {
+    position: fixed !important; top: 0 !important; bottom: 0 !important;
+    left: var(--vc-rail-width) !important; right: auto !important;
+    grid-column: auto !important; grid-row: auto !important;
+    width: min(310px, calc(100vw - var(--vc-rail-width))) !important;
+    max-width: calc(100vw - var(--vc-rail-width)) !important;
+    height: 100dvh !important; min-width: 0 !important;
+    z-index: 51 !important; overflow-y: auto;
+    transform: translateX(calc(-100% - var(--vc-rail-width))) !important;
+    visibility: hidden !important; pointer-events: none !important;
+  }
+  #dashboard .discord-app-layout.mobile-nav-open .server-sidebar {
+    transform: translateX(0) !important; visibility: visible !important; pointer-events: auto !important;
+  }
+  #dashboard .mobile-nav-backdrop:not([hidden]) { display: block !important; position: fixed !important; inset: 0 !important; z-index: 49 !important; }
+  #dashboard .server-members { position: fixed !important; inset: 0 0 0 auto !important; grid-column: auto !important; grid-row: auto !important; width: min(320px, calc(100vw - 40px)) !important; height: 100dvh !important; z-index: 61 !important; display: none !important; padding: max(18px, env(safe-area-inset-top)) 16px max(18px, env(safe-area-inset-bottom)); overflow-y: auto; }
+  #dashboard .discord-app-layout.members-open .server-members:not([hidden]) { display: flex !important; }
+  #dashboard .discord-app-layout.members-open .mobile-nav-backdrop:not([hidden]) { z-index: 59 !important; }
+  #dashboard .workspace-topbar { position: sticky; top: 0; z-index: 3; width: 100%; min-width: 0; }
+  #dashboard .workspace-topbar-actions { margin-left: auto; }
+  #dashboard .workspace-location { flex: 1 1 auto; min-width: 0; }
+  #dashboard .dashboard-content, #dashboard .workspace-room, #dashboard .friends-view, #dashboard .dm-view { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
+  #dashboard .dashboard-content * { max-width: 100%; }
+  #dashboard .server-sidebar-header { min-width: 0; }
+  #dashboard .server-sidebar-actions { flex-shrink: 0; }
+  #dashboard .guild-button { flex-shrink: 0; }
+  .vc-invite-panel, dialog { box-sizing: border-box; max-width: calc(100vw - 24px); }
+  .profile-avatar-upload { min-width: 0; }
+}
