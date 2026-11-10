@@ -1437,3 +1437,12 @@ body {
   .account-session { align-items: flex-start; }
   .account-session .settings-danger-button { white-space: nowrap; }
 }
+
+/* Şifre kurtarma */
+.forgot-password-button { display:block; margin: 9px 0 4px auto; padding: 5px; border: 0; background: transparent; color: #a4a9ff; font-size: 12px; cursor:pointer; text-decoration: underline; }
+.password-recovery-form { margin-top: 16px; }
+.password-recovery-form h3 { margin: 0 0 10px; font-size: 18px; }
+.password-recovery-form p { color: #b8bac6; font-size: 12px; line-height: 1.5; }
+.password-recovery-form label { display:block; margin: 12px 0 7px; font-size: 12px; }
+.password-recovery-form input { width:100%; min-height:40px; }
+[hidden] { display:none !important; }
