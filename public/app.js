@@ -4861,3 +4861,91 @@ if (serverInvite) {
 }
 restoreAccount();
 if (!authToken) showGuestAccount();
+
+// VC CONTROL 4.0: announcements are fetched from the public read-only endpoint.
+// No admin key is ever sent to the browser. Text is inserted using textContent.
+(() => {
+  const widget = document.querySelector("#vc-announcement-widget");
+  const preview = document.querySelector("#vc-announcement-preview");
+  const previewText = document.querySelector("#vc-announcement-preview-text");
+  const badge = document.querySelector("#vc-announcement-count");
+  const dialog = document.querySelector("#vc-announcement-dialog");
+  const list = document.querySelector("#vc-announcement-list");
+  if (!widget || !dialog || !list) return;
+  let current = [];
+  let lastAccountId = null;
+  let dismissed = new Set();
+  const storageKey = (id) => `vc.announcements.dismissed.${id}`;
+  function readDismissed(id) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey(id)) || "[]");
+      return new Set(Array.isArray(saved) ? saved.filter((x) => typeof x === "string").slice(-200) : []);
+    } catch { return new Set(); }
+  }
+  function saveDismissed() {
+    if (!lastAccountId) return;
+    try { localStorage.setItem(storageKey(lastAccountId), JSON.stringify([...dismissed].slice(-200))); } catch {}
+  }
+  function render() {
+    widget.hidden = !accountUser;
+    if (!accountUser) { preview.hidden = true; if (dialog.open) dialog.close(); return; }
+    const unread = current.filter((item) => !dismissed.has(item.id));
+    badge.hidden = !unread.length;
+    badge.textContent = unread.length > 99 ? "99+" : String(unread.length);
+    const newest = unread[0];
+    preview.hidden = !newest || dialog.open;
+    if (newest) previewText.textContent = newest.message;
+    list.replaceChildren();
+    if (!current.length) {
+      const empty = document.createElement("p"); empty.textContent = "Şu anda aktif duyuru bulunmuyor."; list.append(empty);
+    }
+    for (const item of current) {
+      const article = document.createElement("article"); article.className = "vc-announcement-item";
+      const time = document.createElement("time");
+      const date = new Date(item.at);
+      time.textContent = Number.isNaN(date.getTime()) ? "VC Yönetimi" : `VC Yönetimi · ${date.toLocaleString("tr-TR")}`;
+      const body = document.createElement("p"); body.textContent = item.message;
+      article.append(time, body); list.append(article);
+    }
+  }
+  async function refresh() {
+    if (!accountUser) { lastAccountId = null; current = []; render(); return; }
+    if (lastAccountId !== accountUser.id) {
+      lastAccountId = accountUser.id;
+      dismissed = readDismissed(lastAccountId);
+      current = [];
+    }
+    try {
+      const response = await fetch("/api/announcements", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (!Array.isArray(data.announcements)) return;
+      current = data.announcements.filter((item) => typeof item.id === "string" && typeof item.message === "string");
+      render();
+    } catch { /* Connection interruption: retry on the next poll. */ }
+  }
+  function markRead() {
+    for (const item of current) dismissed.add(item.id);
+    saveDismissed();
+    preview.hidden = true;
+    render();
+  }
+  document.querySelector("#vc-announcement-open").addEventListener("click", () => {
+    if (!dialog.open) dialog.showModal();
+    markRead();
+  });
+  document.querySelector("#vc-announcement-preview-open").addEventListener("click", () => {
+    if (!dialog.open) dialog.showModal();
+    markRead();
+  });
+  document.querySelector("#vc-announcement-dismiss").addEventListener("click", () => {
+    const first = current.find((item) => !dismissed.has(item.id));
+    if (first) { dismissed.add(first.id); saveDismissed(); }
+    render();
+  });
+  document.querySelector("#vc-announcement-close").addEventListener("click", () => dialog.close());
+  dialog.addEventListener("close", render);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+  refresh();
+  window.setInterval(() => { if (!document.hidden) refresh(); }, 12000);
+})();
