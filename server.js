@@ -22,6 +22,7 @@ const SERVER_PERMISSION_DEFINITIONS = {
     name: "Rolleri Yönet",
     description: "Roller oluşturup düzenlemeye, silmeye ve üyelere rol atamaya izin verir.",
   },
+  manage_messages: { name: "Mesajları Yönet", description: "Sunucu sohbetindeki diğer üyelerin mesajlarını silmeye ve sabitlemeye izin verir." },
   manage_nicknames: {
     name: "Takma Adları Yönet",
     description: "Üyelerin bu sunucudaki takma adlarını değiştirmeye izin verir.",
@@ -2595,6 +2596,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         webSocket.send(JSON.stringify({
           type: "chat-history",
           messages: currentChatMessages(),
+          canManageMessages: hasServerPermission(serverRecord, webSocket.presenceUserId, "manage_messages"),
           members: getServerMembers(serverId),
           voiceParticipants: getServerVoiceParticipants(serverId),
         }));
@@ -2610,6 +2612,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       webSocket.send(JSON.stringify({
         type: "chat-history",
         messages: currentChatMessages(),
+          canManageMessages: hasServerPermission(serverRecord, webSocket.presenceUserId, "manage_messages"),
         members: getServerMembers(serverId),
         voiceParticipants: getServerVoiceParticipants(serverId),
       }));
@@ -2642,16 +2645,55 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
             if (webSocket.requiresChannelAuth) room.add(webSocket);
             registerServerConnection(webSocket, serverId, user.id, "chat", false);
           }
+          if (!webSocket.requiresChannelAuth) webSocket.send(JSON.stringify({ type: "message-permissions", canManageMessages: hasServerPermission(serverRecord, user.id, "manage_messages") }));
           if (webSocket.requiresChannelAuth) {
             webSocket.send(JSON.stringify({
               type: "chat-history",
               messages: currentChatMessages(),
+          canManageMessages: hasServerPermission(serverRecord, webSocket.presenceUserId, "manage_messages"),
               members: getServerMembers(serverId),
               voiceParticipants: getServerVoiceParticipants(serverId),
             }));
             publishServerMembers(serverId, webSocket);
           }
         }
+        return;
+      }
+
+      if (["message-edit", "message-delete", "message-pin"].includes(message?.type)) {
+        const actorId = webSocket.presenceUserId;
+        const record = store.messages.find((item) => item.id === message.messageId && item.serverId === serverId && item.channelId === channelId);
+        const own = Boolean(actorId && record?.senderId === actorId);
+        const moderator = Boolean(actorId && hasServerPermission(serverRecord, actorId, "manage_messages"));
+        const allowed = record && (message.type === "message-edit" ? own : own || moderator);
+        if (!allowed) {
+          webSocket.send(JSON.stringify({ type: "chat-error", message: "Bu mesaj için yetkin yok." }));
+          return;
+        }
+        const before = { ...record };
+        if (message.type === "message-edit") {
+          const newText = typeof message.text === "string" ? message.text.trim() : "";
+          if (!newText || newText.length > 2000) return;
+          record.text = newText;
+          record.editedAt = new Date().toISOString();
+        } else if (message.type === "message-pin") {
+          if (!record.pinnedAt && store.messages.filter((item) => item.serverId === serverId && item.channelId === channelId && item.pinnedAt).length >= 25) {
+            webSocket.send(JSON.stringify({ type: "chat-error", message: "En fazla 25 mesaj sabitlenebilir." }));
+            return;
+          }
+          record.pinnedAt = record.pinnedAt ? null : new Date().toISOString();
+        } else {
+          store.messages = store.messages.filter((item) => item !== record);
+        }
+        try { persistStore(); } catch (error) {
+          if (message.type === "message-delete") store.messages.push(record);
+          else Object.assign(record, before);
+          webSocket.send(JSON.stringify({ type: "chat-error", message: "Mesaj işlemi kaydedilemedi." }));
+          return;
+        }
+        const update = JSON.stringify({ type: "message-change", action: message.type, messageId: record.id,
+          message: message.type === "message-delete" ? null : record });
+        for (const recipient of room) if (recipient.readyState === WebSocket.OPEN) recipient.send(update);
         return;
       }
 
@@ -2872,6 +2914,38 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
             return sender ? { ...item, name: sender.username, avatar: sender.avatar || "" } : item;
           });
         webSocket.send(JSON.stringify({ type: "dm-history", messages }));
+        return;
+      }
+
+      if (["message-edit", "message-delete", "message-pin"].includes(message?.type)) {
+        const record = store.directMessages.find((item) => item.id === message.messageId && item.conversationId === webSocket.directMessageRoomId);
+        if (!record || record.senderId !== webSocket.presenceUserId) {
+          webSocket.send(JSON.stringify({ type: "dm-error", message: "Yalnızca kendi mesajlarını yönetebilirsin." }));
+          return;
+        }
+        const before = { ...record };
+        if (message.type === "message-edit") {
+          const newText = typeof message.text === "string" ? message.text.trim() : "";
+          if (!newText || newText.length > 2000) return;
+          record.text = newText;
+          record.editedAt = new Date().toISOString();
+        } else if (message.type === "message-pin") {
+          if (!record.pinnedAt && store.directMessages.filter((item) => item.conversationId === webSocket.directMessageRoomId && item.pinnedAt).length >= 25) {
+            webSocket.send(JSON.stringify({ type: "dm-error", message: "En fazla 25 mesaj sabitlenebilir." }));
+            return;
+          }
+          record.pinnedAt = record.pinnedAt ? null : new Date().toISOString();
+        } else store.directMessages = store.directMessages.filter((item) => item !== record);
+        try { persistStore(); } catch (error) {
+          if (message.type === "message-delete") store.directMessages.push(record);
+          else Object.assign(record, before);
+          webSocket.send(JSON.stringify({ type: "dm-error", message: "Mesaj işlemi kaydedilemedi." }));
+          return;
+        }
+        const update = JSON.stringify({ type: "message-change", action: message.type, messageId: record.id,
+          message: message.type === "message-delete" ? null : record });
+        for (const recipient of directMessageRooms.get(webSocket.directMessageRoomId) || [])
+          if (recipient.readyState === WebSocket.OPEN) recipient.send(update);
         return;
       }
 
