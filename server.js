@@ -157,6 +157,19 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
   if (!store.control || typeof store.control !== "object") store.control = {};
   if (!Array.isArray(store.control.bans)) store.control.bans = [];
   if (!Array.isArray(store.control.audit)) store.control.audit = [];
+  if (!Array.isArray(store.control.reports)) store.control.reports = [];
+  if (!Array.isArray(store.control.appeals)) store.control.appeals = [];
+  if (!store.control.emergency || typeof store.control.emergency !== "object") store.control.emergency = { registration: false, serverCreation: false };
+  const reportLimits = new Map();
+  function limitedReport(userId, category) {
+    const key = `${category}:${userId}`; const now = Date.now();
+    const recent = (reportLimits.get(key) || []).filter(t => now - t < 3600000);
+    if (recent.length >= 5) { reportLimits.set(key, recent); return true; }
+    recent.push(now); reportLimits.set(key, recent);
+    if (reportLimits.size > 10000) reportLimits.clear();
+    return false;
+  }
+
   function activeControlBan(userId) {
     return store.control.bans.find(b => b.userId === userId && (!b.expiresAt || Date.parse(b.expiresAt) > Date.now()));
   }
@@ -657,7 +670,29 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         }
         sendJson(response, 200, { ok: true }); return;
       }
+      if (request.method === "POST" && requestUrl.pathname === "/api/control/moderation") {
+        let body; try { body = await readJson(request); } catch { sendJson(response, 400, {error:"Geçersiz istek."}); return; }
+        const { action, id, status, note, registration, serverCreation, reason } = body;
+        if (action === "emergency") {
+          if (typeof registration !== "boolean" || typeof serverCreation !== "boolean" || typeof reason !== "string" || reason.trim().length < 5 || reason.length > 500) { sendJson(response,400,{error:"Geçerli durum ve gerekçe gerekli."}); return; }
+          const old = {...store.control.emergency}; store.control.emergency = {registration,serverCreation};
+          recordControlAction("emergency", "platform", reason.trim());
+          try {persistStore()} catch {store.control.emergency=old;sendJson(response,500,{error:"Kaydedilemedi."});return;}
+          sendJson(response,200,{ok:true});return;
+        }
+        const collection = action === "report_status" ? store.control.reports : action === "appeal_status" ? store.control.appeals : null;
+        if (!collection || typeof id !== "string" || !["open","reviewing","resolved","rejected"].includes(status) || typeof note !== "string" || note.trim().length < 5 || note.length > 500) {sendJson(response,400,{error:"Geçersiz moderasyon işlemi."});return;}
+        const entry=collection.find(x=>x.id===id);if(!entry){sendJson(response,404,{error:"Kayıt bulunamadı."});return;}
+        const old={status:entry.status,notes:entry.notes};entry.status=status;entry.notes=[...(entry.notes||[]),{text:note.trim(),at:new Date().toISOString()}];
+        recordControlAction(action,id,note.trim());
+        try{persistStore()}catch{entry.status=old.status;entry.notes=old.notes;sendJson(response,500,{error:"Kaydedilemedi."});return;}
+        sendJson(response,200,{ok:true});return;
+      }
       if (request.method !== "GET") { sendJson(response, 405, { error: "Yöntem desteklenmiyor." }); return; }
+      if (requestUrl.pathname === "/api/control/reports") {sendJson(response,200,{reports:store.control.reports.slice(-300).reverse()});return;}
+      if (requestUrl.pathname === "/api/control/appeals") {sendJson(response,200,{appeals:store.control.appeals.slice(-300).reverse()});return;}
+      if (requestUrl.pathname === "/api/control/emergency") {sendJson(response,200,{...store.control.emergency});return;}
+      if (requestUrl.pathname === "/api/control/sessions") {sendJson(response,200,{sessions:store.sessions.map(x=>({id:x.id,userId:x.userId,createdAt:x.createdAt,device:x.device}))});return;}
       if (requestUrl.pathname === "/api/control/audit") {
         sendJson(response, 200, { audit: store.control.audit.slice(-100).reverse() }); return;
       }
@@ -680,6 +715,33 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
 
     const { pathname } = requestUrl;
 
+    // Authenticated, rate-limited user reports and ban appeals. No private message content is copied.
+    if (request.method === "POST" && pathname === "/api/reports") {
+      const user = getUser(request);
+      if (!user) {sendJson(response,401,{error:"Giriş gerekli."});return;}
+      if (limitedReport(user.id,"report")) {sendJson(response,429,{error:"Saatlik şikâyet sınırına ulaşıldı."});return;}
+      const body=await readJson(request);
+      const {targetType,targetId,reason}=body;
+      if (!["user","server","message"].includes(targetType) || typeof targetId!=="string" || targetId.length>128 || typeof reason!=="string" || reason.trim().length<10 || reason.length>1000) {sendJson(response,400,{error:"Geçersiz şikâyet."});return;}
+      const exists=targetType==="user"?store.users.some(x=>x.id===targetId):targetType==="server"?store.servers.some(x=>x.id===targetId):store.messages.some(x=>x.id===targetId);
+      if (!exists) {sendJson(response,404,{error:"Şikâyet hedefi bulunamadı."});return;}
+      const item={id:randomUUID(),reporterId:user.id,targetType,targetId,reason:reason.trim(),status:"open",notes:[],createdAt:new Date().toISOString()};
+      store.control.reports.push(item);
+      try{persistStore()}catch{store.control.reports.pop();sendJson(response,500,{error:"Kaydedilemedi."});return;}
+      sendJson(response,201,{id:item.id,status:item.status});return;
+    }
+    if (request.method === "POST" && pathname === "/api/ban-appeals") {
+      // Banlı hesaplar giriş yapamadığından bu uç nokta mevcut oturumla kullanılabilir;
+      // ban sonrası itiraz için ayrı kimlik doğrulamalı akış henüz gereklidir.
+      const user=getUser(request);if(!user){sendJson(response,401,{error:"Giriş gerekli."});return;}
+      if (!activeControlBan(user.id)){sendJson(response,403,{error:"Aktif platform banı bulunamadı."});return;}
+      if (limitedReport(user.id,"appeal")){sendJson(response,429,{error:"Saatlik sınır aşıldı."});return;}
+      const body=await readJson(request);const reason=body.reason;
+      if(typeof reason!=="string"||reason.trim().length<10||reason.length>1000){sendJson(response,400,{error:"En az 10 karakter gerekçe gerekli."});return;}
+      const item={id:randomUUID(),userId:user.id,reason:reason.trim(),status:"open",notes:[],createdAt:new Date().toISOString()};store.control.appeals.push(item);
+      try{persistStore()}catch{store.control.appeals.pop();sendJson(response,500,{error:"Kaydedilemedi."});return;}
+      sendJson(response,201,{id:item.id});return;
+    }
     // Reset tokens are random, single-use, stored only as SHA-256 hashes and expire in 30 minutes.
     if (request.method === "POST" && pathname === "/api/password/forgot") {
       const body = await readJson(request);
@@ -782,6 +844,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       const username = typeof body.username === "string" ? body.username.trim() : "";
       const email = typeof body.email === "string" ? body.email.trim().toLocaleLowerCase("en-US") : "";
       const password = typeof body.password === "string" ? body.password : "";
+      if (pathname === "/api/register" && store.control.emergency.registration) {sendJson(response,503,{error:"Kayıtlar geçici olarak durduruldu."});return;}
       if (pathname === "/api/register" && !/^[\p{L}\p{N}_-]{3,24}$/u.test(username)) {
         sendJson(response, 400, { error: "Kullanıcı adı 3-24 karakter olmalı; harf, rakam, _ ve - kullanılabilir." });
         return;
@@ -2318,6 +2381,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
     }
 
     if (request.method === "POST" && pathname === "/api/servers") {
+      if (store.control.emergency.serverCreation) {sendJson(response,503,{error:"Sunucu oluşturma geçici olarak durduruldu."});return;}
       const user = getUser(request);
       if (!user) {
         sendJson(response, 401, { error: "Sunucu kurmak için kayıt olup giriş yap." });
