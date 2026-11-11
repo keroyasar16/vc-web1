@@ -1740,6 +1740,48 @@ function updateAudioVolumeLabels() {
   }
 }
 
+const memberVolumes = new Map();
+const memberGainNodes = new WeakMap();
+let memberVolumeContext;
+function getMemberVolume(id) {
+  const stored = Number(localStorage.getItem(`vc.memberVolume.${id}`));
+  return Number.isFinite(stored) && stored >= 0 && stored <= 200 ? stored : 100;
+}
+function setMemberVolume(id, level) {
+  const value = Math.max(0, Math.min(200, Number(level) || 0));
+  memberVolumes.set(id, value);
+  localStorage.setItem(`vc.memberVolume.${id}`, String(value));
+  applyMemberVolumes();
+}
+function applyMemberVolumes() {
+  const master = getAudioVolumePreference("outputVolume", 100) / 100;
+  for (const card of grid.querySelectorAll(".participant-card")) {
+    const audio = card.querySelector("audio");
+    if (!audio) continue;
+    const level = (memberVolumes.get(card.dataset.participant) ?? getMemberVolume(card.dataset.participant)) / 100;
+    const existing = memberGainNodes.get(audio);
+    if (existing) {
+      audio.volume = master;
+      existing.gain.value = level;
+    } else if (level <= 1) {
+      audio.volume = master * level;
+    } else {
+      try {
+        memberVolumeContext ||= new (window.AudioContext || window.webkitAudioContext)();
+        const source = memberVolumeContext.createMediaElementSource(audio);
+        const gain = memberVolumeContext.createGain();
+        source.connect(gain); gain.connect(memberVolumeContext.destination);
+        memberGainNodes.set(audio, gain);
+        gain.gain.value = level;
+        audio.volume = master;
+        memberVolumeContext.resume().catch(() => {});
+      } catch (error) {
+        console.warn("%100 üzeri ses desteği kullanılamadı", error);
+        audio.volume = master;
+      }
+    }
+  }
+}
 function applyOutputSettings() {
   const sinkId = audioOutputDevice.value || getAudioPreference("outputDevice");
   for (const audio of grid.querySelectorAll("audio")) {
@@ -1752,6 +1794,7 @@ function applyOutputSettings() {
       showToast("Seçilen hoparlör kullanılamadı.");
     });
   }
+  applyMemberVolumes();
 }
 
 audioInputDevice.addEventListener("change", async () => {
@@ -3283,17 +3326,24 @@ function renderServerMembers() {
   }
   const onlineMembers = Array.from(onlineById.values())
     .sort((left, right) => (left.nickname || left.username).localeCompare(right.nickname || right.username, "tr"));
+  const hasCustomRole = (member) => (Array.isArray(member.roles) && member.roles.some((role) => !role.isDefault)) ||
+    (Array.isArray(member.roleIds) && member.roleIds.some((id) => serverRoleData.roles.some((role) => role.id === id && !role.isDefault)));
+  const roleOnlineMembers = onlineMembers.filter(hasCustomRole);
+  const regularOnlineMembers = onlineMembers.filter((member) => !hasCustomRole(member));
+  const roleSection = document.querySelector("#role-online-section");
+  roleSection.hidden = roleOnlineMembers.length === 0;
+  document.querySelector("#role-online-count").textContent = String(roleOnlineMembers.length);
   const offlineMembers = serverMembers.filter((member) => !member.isOnline);
   document.querySelector("#server-member-count").textContent = String(onlineMembers.length + offlineMembers.length);
-  document.querySelector("#online-member-count").textContent = String(onlineMembers.length);
+  document.querySelector("#online-member-count").textContent = String(regularOnlineMembers.length);
   document.querySelector("#offline-member-count").textContent = String(offlineMembers.length);
 
-  for (const [members, list] of [[onlineMembers, onlineMembersList], [offlineMembers, offlineMembersList]]) {
+  for (const [members, list] of [[roleOnlineMembers, document.querySelector("#role-online-members")], [regularOnlineMembers, onlineMembersList], [offlineMembers, offlineMembersList]]) {
     list.replaceChildren();
     if (members.length === 0) {
       const empty = document.createElement("p");
       empty.className = "server-members-empty";
-      empty.textContent = members === onlineMembers ? "Çevrimiçi üye yok" : "Çevrimdışı üye yok";
+      empty.textContent = members === offlineMembers ? "Çevrimdışı üye yok" : "Çevrimiçi üye yok";
       list.append(empty);
       continue;
     }
@@ -3314,6 +3364,8 @@ function renderServerMembers() {
       name.className = "server-member-name";
       name.textContent = member.nickname || member.username;
       item.append(avatar, name);
+      const customRoles = Array.isArray(member.roles) ? member.roles.filter((role) => !role.isDefault) : [];
+      if (customRoles[0]?.color && /^#[0-9a-f]{3,8}$/i.test(customRoles[0].color)) name.style.color = customRoles[0].color;
       list.append(item);
     }
   }
@@ -3512,6 +3564,26 @@ function showMemberContextMenu(target, x, y) {
   const isIgnored = ignoredUserIds.has(target.userId || `guest:${target.clientId}`);
   const server = target.server;
 
+  if (!targetIsSelf && (target.userId || target.clientId)) {
+    const voiceId = serverVoiceParticipants.find((person) => person.id === target.userId)?.clientId || target.clientId;
+    if (voiceId && voiceId !== clientId) {
+      const volumeRow = document.createElement("div");
+      volumeRow.className = "vc-member-volume";
+      const label = document.createElement("label");
+      const value = document.createElement("span");
+      const slider = document.createElement("input");
+      slider.type = "range"; slider.min = "0"; slider.max = "200"; slider.step = "5";
+      slider.value = String(getMemberVolume(voiceId));
+      label.textContent = "Kullanıcı Ses Düzeyi "; value.textContent = `${slider.value}%`;
+      label.append(value); slider.setAttribute("aria-label", `${target.username} ses düzeyi`);
+      slider.addEventListener("input", () => {
+        value.textContent = `${slider.value}%`;
+        setMemberVolume(voiceId, Number(slider.value));
+      });
+      volumeRow.append(label, slider); menu.append(volumeRow);
+      addSeparator();
+    }
+  }
   addItem("Profili Görüntüle", () => showMemberProfile(target));
   if (activeChat) {
     addItem("Bahset", () => {
@@ -4413,6 +4485,7 @@ function renderParticipant(id, name, stream) {
     audio.muted = soundMuted;
     audio.srcObject = stream;
     applyOutputSettings();
+    applyMemberVolumes();
     audio.play().catch(() => showToast("Sesi duymak için sayfada bir kez dokun."));
   }
   updateParticipantCount();
@@ -4996,4 +5069,64 @@ if (!authToken) showGuestAccount();
   document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
   refresh();
   window.setInterval(() => { if (!document.hidden) refresh(); }, 12000);
+})();
+
+// VC user-configurable shortcuts. Browser-focused only; text fields are excluded.
+(() => {
+  const definitions = [
+    { id: "mic", label: "Mikrofonu Aç / Kapat", defaultKey: "Ctrl+KeyM", button: muteButton },
+    { id: "sound", label: "Hoparlör ve Mikrofonu Aç / Kapat", defaultKey: "Ctrl+Shift+KeyD", button: soundMuteButton },
+  ];
+  const storageKey = "vc.shortcut.bindings.v1";
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(storageKey) || "{}"); } catch (_) { saved = {}; }
+  let recording = null;
+  const list = document.querySelector("#vc-shortcut-list");
+  if (!list) return;
+  function keyName(binding) {
+    return binding ? binding.replace(/Key([A-Z])/g, "$1").replace(/Digit([0-9])/g, "$1").replaceAll("+", " + ") : "Atanmamış";
+  }
+  function current(id) { return Object.hasOwn(saved, id) ? saved[id] : definitions.find((entry) => entry.id === id).defaultKey; }
+  function draw() {
+    list.replaceChildren();
+    for (const item of definitions) {
+      const row = document.createElement("div"); row.className = "vc-shortcut-row";
+      const label = document.createElement("span"); label.textContent = item.label;
+      const key = document.createElement("kbd"); key.textContent = recording === item.id ? "Tuşlara bas..." : keyName(current(item.id));
+      const assign = document.createElement("button"); assign.type = "button";
+      assign.className = "settings-secondary-button"; assign.textContent = "Tuş Ata";
+      assign.addEventListener("click", () => { recording = item.id; draw(); });
+      const clear = document.createElement("button"); clear.type = "button";
+      clear.className = "settings-secondary-button"; clear.textContent = "Kaldır";
+      clear.addEventListener("click", () => { saved[item.id] = ""; localStorage.setItem(storageKey, JSON.stringify(saved)); recording = null; draw(); });
+      row.append(label, key, assign, clear); list.append(row);
+    }
+  }
+  function combination(event) {
+    const modifiers = [event.ctrlKey ? "Ctrl" : "", event.altKey ? "Alt" : "", event.shiftKey ? "Shift" : "", event.metaKey ? "Meta" : ""].filter(Boolean);
+    if (["ControlLeft", "ControlRight", "AltLeft", "AltRight", "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight"].includes(event.code)) return null;
+    if (!modifiers.length && !/^F([1-9]|1[0-2])$/.test(event.code)) return "";
+    return [...modifiers, event.code].join("+");
+  }
+  document.addEventListener("keydown", (event) => {
+    if (recording) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (event.key === "Escape") { recording = null; draw(); return; }
+      const binding = combination(event);
+      if (binding === null) return;
+      if (!binding) { showToast("Bir değiştirici tuş (Ctrl, Alt veya Shift) kullan."); return; }
+      if (definitions.some((item) => item.id !== recording && current(item.id) === binding)) {
+        showToast("Bu kısayol başka bir işleme atanmış."); return;
+      }
+      saved[recording] = binding; localStorage.setItem(storageKey, JSON.stringify(saved));
+      recording = null; draw(); return;
+    }
+    if (event.repeat || event.isComposing || event.target.closest("input, textarea, select, [contenteditable], dialog[open]")) return;
+    const binding = combination(event);
+    const action = definitions.find((item) => current(item.id) && current(item.id) === binding);
+    if (!action || !voiceActive || action.button.disabled) return;
+    event.preventDefault(); action.button.click();
+  }, true);
+  document.querySelector("#user-settings-dialog")?.addEventListener("close", () => { recording = null; draw(); });
+  draw();
 })();
