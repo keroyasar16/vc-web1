@@ -2660,6 +2660,29 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         return;
       }
 
+      // /clear: only the owner may permanently clear the CURRENT text channel.
+      if (message?.type === "chat-clear" ||
+          (message?.type === "chat-message" && typeof message.text === "string" && message.text.trim() === "/clear")) {
+        if (!webSocket.presenceUserId || serverRecord.ownerId !== webSocket.presenceUserId) {
+          webSocket.send(JSON.stringify({ type: "chat-error", message: "Bu komutu yalnızca sunucu sahibi kullanabilir." }));
+          return;
+        }
+        const previousMessages = store.messages;
+        store.messages = previousMessages.filter((item) =>
+          !(item.serverId === serverId && item.channelId === channelId));
+        try { persistStore(); } catch (error) {
+          store.messages = previousMessages;
+          console.error("Sohbet temizlenemedi:", error);
+          webSocket.send(JSON.stringify({ type: "chat-error", message: "Sohbet temizlenemedi." }));
+          return;
+        }
+        const notification = JSON.stringify({ type: "chat-cleared", serverId, channelId });
+        for (const recipient of room) {
+          if (recipient.readyState === WebSocket.OPEN) recipient.send(notification);
+        }
+        return;
+      }
+
       if (["message-edit", "message-delete", "message-pin"].includes(message?.type)) {
         const actorId = webSocket.presenceUserId;
         const record = store.messages.find((item) => item.id === message.messageId && item.serverId === serverId && item.channelId === channelId);
