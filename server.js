@@ -2590,6 +2590,37 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
 
   const server = http.createServer((request, response) => {
     const requestUrl = new URL(request.url, "http://localhost");
+    if (request.method === "GET" && requestUrl.pathname === "/download-client") {
+      const externalUrl = String(process.env.VC_CLIENT_SETUP_URL || "").trim();
+      if (externalUrl) {
+        let target;
+        try { target = new URL(externalUrl); } catch (_) { target = null; }
+        if (!target || target.protocol !== "https:" || target.username || target.password) {
+          response.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" }).end("Client indirme adresi hatalı yapılandırılmış.");
+          return;
+        }
+        response.writeHead(302, { Location: target.toString(), "Cache-Control": "no-store" }).end();
+        return;
+      }
+      const setupPath = path.join(process.env.DATA_DIR || path.join(__dirname, "data"), "downloads", "VC-Setup.exe");
+      fs.stat(setupPath, (error, stats) => {
+        if (error || !stats.isFile()) {
+          response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }).end("VC istemci kurulum dosyası henüz yüklenmedi. Lütfen daha sonra tekrar deneyin.");
+          return;
+        }
+        response.writeHead(200, {
+          "Content-Type": "application/octet-stream",
+          "Content-Disposition": 'attachment; filename="VC-Setup.exe"',
+          "Content-Length": stats.size,
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        });
+        const stream = fs.createReadStream(setupPath);
+        stream.on("error", () => response.destroy());
+        stream.pipe(response);
+      });
+      return;
+    }
     if (requestUrl.pathname.startsWith("/api/")) {
       handleApi(request, response, requestUrl).catch((error) => {
         if (response.headersSent || response.destroyed) return;
