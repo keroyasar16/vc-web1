@@ -4930,6 +4930,54 @@ if (!authToken) showGuestAccount();
     preview.hidden = true;
     render();
   }
+  // Drag with mouse or touch. Save position locally; tap still opens the dialog.
+  const trigger = document.querySelector("#vc-announcement-open");
+  const positionKey = "vc.announcement.widget.position.v1";
+  let suppressClick = false;
+  function place(x, y) {
+    const w = widget.offsetWidth || 46, h = widget.offsetHeight || 46;
+    const left = Math.max(8, Math.min(window.innerWidth - w - 8, x));
+    const top = Math.max(8, Math.min(window.innerHeight - h - 8, y));
+    widget.style.left = `${left}px`; widget.style.top = `${top}px`;
+    widget.style.right = "auto"; widget.style.bottom = "auto";
+    return { x: left, y: top };
+  }
+  try { const saved = JSON.parse(localStorage.getItem(positionKey) || "null");
+    if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) place(saved.x, saved.y);
+  } catch {}
+  let drag = null;
+  trigger.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+    const rect = widget.getBoundingClientRect();
+    drag = { id: e.pointerId, dx: e.clientX - rect.left, dy: e.clientY - rect.top, sx: e.clientX, sy: e.clientY, moved: false };
+    trigger.setPointerCapture(e.pointerId);
+  });
+  trigger.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 7) return;
+    drag.moved = true; widget.classList.add("vc-announcement-dragging");
+    place(e.clientX - drag.dx, e.clientY - drag.dy);
+  });
+  function endDrag(e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (drag.moved) {
+      const rect = widget.getBoundingClientRect();
+      try { localStorage.setItem(positionKey, JSON.stringify({ x: rect.left, y: rect.top })); } catch {}
+      suppressClick = true;
+    }
+    widget.classList.remove("vc-announcement-dragging"); drag = null;
+  }
+  trigger.addEventListener("pointerup", endDrag);
+  trigger.addEventListener("pointercancel", endDrag);
+  trigger.addEventListener("click", (e) => {
+    if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
+  window.addEventListener("resize", () => {
+    if (!widget.style.left) return;
+    const rect = widget.getBoundingClientRect();
+    const pos = place(rect.left, rect.top);
+    try { localStorage.setItem(positionKey, JSON.stringify(pos)); } catch {}
+  });
   document.querySelector("#vc-announcement-open").addEventListener("click", () => {
     if (!dialog.open) dialog.showModal();
     markRead();
