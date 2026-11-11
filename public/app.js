@@ -792,6 +792,22 @@ function handleMessageChange(kind, update) {
   }
   messagePinnedBar(kind);
 }
+let openVcMessageMenu = null;
+function closeVcMessageMenu() {
+  if (!openVcMessageMenu) return;
+  openVcMessageMenu.menu.remove();
+  openVcMessageMenu.trigger.setAttribute("aria-expanded", "false");
+  openVcMessageMenu = null;
+}
+document.addEventListener("pointerdown", (event) => {
+  if (openVcMessageMenu && !openVcMessageMenu.menu.contains(event.target) &&
+      !openVcMessageMenu.trigger.contains(event.target)) closeVcMessageMenu();
+});
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeVcMessageMenu(); });
+window.addEventListener("resize", closeVcMessageMenu);
+document.addEventListener("scroll", (event) => {
+  if (openVcMessageMenu && !openVcMessageMenu.menu.contains(event.target)) closeVcMessageMenu();
+}, true);
 function attachMessageActions(article, message, kind) {
   if (!message.id) return;
   article.dataset.messageId = message.id;
@@ -800,6 +816,7 @@ function attachMessageActions(article, message, kind) {
   const own = Boolean(accountUser && message.senderId === accountUser.id);
   const moderator = kind === "chat" && canManageChatMessages;
   if (!own && !moderator) return;
+  if (article.querySelector(".vc-message-actions")) return;
   const holder = document.createElement("div");
   holder.className = "vc-message-actions";
   const trigger = document.createElement("button");
@@ -807,31 +824,55 @@ function attachMessageActions(article, message, kind) {
   trigger.className = "vc-message-menu-trigger";
   trigger.textContent = "⋯";
   trigger.setAttribute("aria-label", "Mesaj seçenekleri");
-  const menu = document.createElement("div");
-  menu.className = "vc-message-menu";
-  menu.hidden = true;
-  trigger.addEventListener("click", (event) => { event.stopPropagation(); menu.hidden = !menu.hidden; });
-  document.addEventListener("click", (event) => { if (!holder.contains(event.target)) menu.hidden = true; }, { signal: messageMenuAbort.signal });
-  const action = (label, fn) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = label;
-    button.addEventListener("click", () => { menu.hidden = true; fn(); });
-    menu.append(button);
-  };
-  const send = (type, extra = {}) => {
-    const socket = kind === "chat" ? chatSocket : directMessageSocket;
-    if (socket?.readyState !== WebSocket.OPEN) { showToast("Sohbet bağlantısı hazır değil."); return; }
-    socket.send(JSON.stringify({ type, messageId: message.id, ...extra }));
-  };
-  if (own) action("✎ Düzenle", () => {
-    const current = messageState[kind].get(message.id);
-    const value = prompt("Mesajı düzenle:", current?.text || "");
-    if (value !== null && value.trim()) send("message-edit", { text: value.trim() });
+  trigger.setAttribute("aria-haspopup", "true");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (openVcMessageMenu?.trigger === trigger) { closeVcMessageMenu(); return; }
+    closeVcMessageMenu();
+    const menu = document.createElement("div");
+    menu.className = "vc-message-menu";
+    menu.setAttribute("role", "menu");
+    const send = (type, extra = {}) => {
+      const socket = kind === "chat" ? chatSocket : directMessageSocket;
+      if (socket?.readyState !== WebSocket.OPEN) { showToast("Sohbet bağlantısı hazır değil."); return; }
+      socket.send(JSON.stringify({ type, messageId: message.id, ...extra }));
+    };
+    const action = (icon, label, fn, danger = false) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("role", "menuitem");
+      if (danger) button.className = "is-danger";
+      const symbol = document.createElement("span");
+      symbol.className = "vc-message-menu-icon";
+      symbol.textContent = icon;
+      const caption = document.createElement("span");
+      caption.className = "vc-message-menu-label";
+      caption.textContent = label;
+      button.append(symbol, caption);
+      button.addEventListener("click", () => { closeVcMessageMenu(); fn(); });
+      menu.append(button);
+    };
+    if (own) action("✎", "Düzenle", () => {
+      const current = messageState[kind].get(message.id);
+      const value = prompt("Mesajı düzenle:", current?.text || "");
+      if (value !== null && value.trim()) send("message-edit", { text: value.trim() });
+    });
+    action("▤", "Sil", () => { if (confirm("Bu mesaj silinsin mi?")) send("message-delete"); }, true);
+    action("📌", messageState[kind].get(message.id)?.pinnedAt ? "Sabitlemeyi kaldır" : "Başa tuttur", () => send("message-pin"));
+    document.body.append(menu);
+    const rect = trigger.getBoundingClientRect();
+    const width = menu.offsetWidth;
+    const height = menu.offsetHeight;
+    const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width));
+    const top = rect.bottom + height + 6 <= window.innerHeight
+      ? rect.bottom + 5 : Math.max(8, rect.top - height - 5);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    openVcMessageMenu = { menu, trigger };
+    trigger.setAttribute("aria-expanded", "true");
   });
-  action("🗑 Sil", () => { if (confirm("Bu mesaj silinsin mi?")) send("message-delete"); });
-  action("📌 Başa tuttur / kaldır", () => send("message-pin"));
-  holder.append(trigger, menu);
+  holder.append(trigger);
   article.append(holder);
 }
 const messageMenuAbort = new AbortController();
@@ -3118,6 +3159,16 @@ function openServerChat(server, channelId, title) {
       } else {
         for (const chatMessage of message.messages) appendChatMessage(chatMessage);
       }
+    } else if (message.type === "chat-cleared") {
+      closeVcMessageMenu();
+      chatMessages.replaceChildren();
+      messageState.chat.clear();
+      messagePinnedBar("chat");
+      const emptyState = document.createElement("div");
+      emptyState.className = "chat-empty-state";
+      emptyState.textContent = "Bu sohbet sunucu sahibi tarafından temizlendi.";
+      chatMessages.append(emptyState);
+      showToast("Sohbet temizlendi.");
     } else if (message.type === "chat-message") {
       appendChatMessage(message.message);
     } else if (message.type === "message-change") {
@@ -3865,7 +3916,12 @@ chatForm.addEventListener("submit", (event) => {
     showToast("Sohbet bağlantısı hazır değil. Bağlantı kurulunca tekrar dene.");
     return;
   }
-  chatSocket.send(JSON.stringify({ type: "chat-message", text }));
+  if (text === "/clear") {
+    if (!confirm("Bu kanaldaki TÜM mesajları kalıcı olarak silmek istiyor musun? Bu işlem geri alınamaz.")) return;
+    chatSocket.send(JSON.stringify({ type: "chat-clear" }));
+  } else {
+    chatSocket.send(JSON.stringify({ type: "chat-message", text }));
+  }
   chatInput.value = "";
 });
 
