@@ -335,6 +335,10 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         nickname: serverRecord.nicknames?.[user.id] || "",
         avatar: user.avatar || "",
         isOnline: isUserOnline(user.id),
+        roleIds: serverRecord?.memberRoles?.[user.id] || [],
+        roles: (serverRecord?.roles || []).filter((role) =>
+          !role.isDefault && (serverRecord?.memberRoles?.[user.id] || []).includes(role.id)
+        ).map(({ id, name, color }) => ({ id, name, color })),
       }));
   }
 
