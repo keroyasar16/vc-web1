@@ -659,6 +659,18 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
   }
 
   async function handleApi(request, response, requestUrl) {
+    // Public, read-only endpoint: only active announcement text and metadata.
+    // Never return internal moderation data or API keys.
+    if (requestUrl.pathname === "/api/announcements") {
+      if (request.method !== "GET") { response.setHeader("Allow", "GET"); sendJson(response, 405, { error: "Yöntem desteklenmiyor." }); return; }
+      response.setHeader("Cache-Control", "no-store");
+      const announcements = (store.control?.announcements || [])
+        .filter((entry) => entry && entry.active === true && typeof entry.message === "string")
+        .slice(-50).reverse()
+        .map((entry) => ({ id: entry.id, message: entry.message, at: entry.at }));
+      sendJson(response, 200, { announcements });
+      return;
+    }
     // VC CONTROL: private, server-to-server read-only endpoints. Never expose raw store data.
     if (requestUrl.pathname.startsWith("/api/control/")) {
       const expected = process.env.VC_CONTROL_API_KEY;
