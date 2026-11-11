@@ -1675,3 +1675,22 @@ body {
   .vc-message-menu button { min-height: 43px; font-size: 14px; }
   .vc-message-menu-icon { font-size: 16px; }
 }
+
+/* VC CONTROL 4.0 — Public announcement center */
+.vc-announcement-widget{position:fixed;right:20px;bottom:22px;z-index:900;max-width:min(350px,calc(100vw - 32px));font-family:inherit}
+.vc-announcement-widget[hidden],.vc-announcement-preview[hidden],.vc-announcement-count[hidden]{display:none!important}
+.vc-announcement-trigger{display:flex;align-items:center;gap:9px;border:1px solid #3c695a;border-radius:999px;background:#183c32;color:#f1fff7;padding:11px 17px;box-shadow:0 8px 24px #0007;cursor:pointer;font:600 13px inherit}
+.vc-announcement-count{background:#e3f8e9;color:#174332;border-radius:999px;min-width:19px;padding:2px 5px;text-align:center;font-size:11px}
+.vc-announcement-preview{position:absolute;right:0;bottom:57px;width:min(350px,calc(100vw - 32px));background:#19232c;border:1px solid #3a4a53;border-radius:14px;color:#f3f7f7;box-shadow:0 15px 42px #0008;padding:15px}
+.vc-announcement-preview-head,.vc-announcement-dialog-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.vc-announcement-preview-head button,.vc-announcement-dialog-head button{background:transparent;border:0;color:inherit;font-size:24px;cursor:pointer}
+.vc-announcement-preview p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5;max-height:120px;overflow:hidden;margin:10px 0}
+#vc-announcement-preview-open{background:#315b4d;border:0;border-radius:8px;color:white;padding:8px 12px;cursor:pointer}
+.vc-announcement-dialog{position:fixed;inset:0;margin:auto;width:min(530px,calc(100vw - 24px));max-height:min(75vh,650px);background:#18232c;color:#f1f7f7;border:1px solid #43575c;border-radius:16px;padding:20px;box-shadow:0 20px 60px #000a}
+.vc-announcement-dialog::backdrop{background:#0009}
+.vc-announcement-dialog h2{font-size:19px;margin:0}
+.vc-announcement-list{overflow:auto;max-height:55vh;margin-top:16px;display:grid;gap:10px}
+.vc-announcement-item{border:1px solid #334a50;border-radius:10px;padding:12px;background:#202f37}
+.vc-announcement-item time{display:block;color:#aebdc0;font-size:11px;margin-bottom:8px}
+.vc-announcement-item p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.55}
+@media(max-width:600px){.vc-announcement-widget{right:12px;bottom:12px}.vc-announcement-trigger{padding:9px 13px}.vc-announcement-dialog{padding:14px}}
