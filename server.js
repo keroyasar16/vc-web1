@@ -590,6 +590,32 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
   }
 
   async function handleApi(request, response, requestUrl) {
+    // VC CONTROL: private, server-to-server read-only endpoints. Never expose raw store data.
+    if (requestUrl.pathname.startsWith("/api/control/")) {
+      const expected = process.env.VC_CONTROL_API_KEY;
+      const supplied = request.headers["x-vc-control-key"];
+      const ok = typeof expected === "string" && expected.length >= 32 &&
+        typeof supplied === "string" && supplied.length === expected.length &&
+        timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
+      if (!ok) { sendJson(response, 403, { error: "Erişim reddedildi." }); return; }
+      if (request.method !== "GET") { sendJson(response, 405, { error: "Yöntem desteklenmiyor." }); return; }
+      if (requestUrl.pathname === "/api/control/overview") {
+        sendJson(response, 200, { users: store.users.length, servers: store.servers.length,
+          sessions: store.sessions.length, messages: store.messages.length,
+          websocketConnections: webSocketServers.reduce((n, ws) => n + ws.clients.size, 0) }); return;
+      }
+      if (requestUrl.pathname === "/api/control/servers") {
+        sendJson(response, 200, { servers: store.servers.map(s => ({ id:s.id, name:s.name,
+          ownerId:s.ownerId, members:store.users.filter(u => Array.isArray(u.servers) && u.servers.includes(s.id)).length,
+          createdAt:s.createdAt || null })) }); return;
+      }
+      if (requestUrl.pathname === "/api/control/users") {
+        sendJson(response, 200, { users: store.users.map(u => ({ id:u.id, username:u.username,
+          createdAt:u.createdAt || null })) }); return;
+      }
+      sendJson(response, 404, { error: "Kontrol adresi bulunamadı." }); return;
+    }
+
     const { pathname } = requestUrl;
 
     // Reset tokens are random, single-use, stored only as SHA-256 hashes and expire in 30 minutes.
