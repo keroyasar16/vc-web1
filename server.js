@@ -743,12 +743,14 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
           }else store.control.ipBlocks=store.control.ipBlocks.filter(x=>x.ip!==ip);
           recordControlAction(action,ip,reason);persistStore();sendJson(response,200,{ok:true});return;
         }
-        if(action==='announce'||action==='remove_announcement'){
+        if(action==='announce'||action==='remove_announcement'||action==='delete_announcement'){
           if(action==='announce'){
             const message=String(b.message||'').trim();if(message.length<5||message.length>1000){sendJson(response,400,{error:'Duyuru 5-1000 karakter olmalı.'});return}
             store.control.announcements.push({id:randomUUID(),message,at:new Date().toISOString(),active:true});
           }else{
-            const entry=store.control.announcements.find(x=>x.id===b.id);if(!entry){sendJson(response,404,{error:'Duyuru bulunamadı.'});return}entry.active=false;
+            const entry=store.control.announcements.find(x=>x.id===b.id);if(!entry){sendJson(response,404,{error:'Duyuru bulunamadı.'});return}
+            if(action==='delete_announcement')store.control.announcements=store.control.announcements.filter(x=>x.id!==b.id);
+            else entry.active=false;
           }
           recordControlAction(action,b.id||'platform',reason);persistStore();sendJson(response,200,{ok:true});return;
         }
