@@ -160,6 +160,40 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
   if (!Array.isArray(store.control.reports)) store.control.reports = [];
   if (!Array.isArray(store.control.appeals)) store.control.appeals = [];
   if (!store.control.emergency || typeof store.control.emergency !== "object") store.control.emergency = { registration: false, serverCreation: false };
+  // VC CONTROL 4: retained operational state. IPs are recorded only for auth-related requests.
+  if (!Array.isArray(store.control.ipEvents)) store.control.ipEvents = [];
+  if (!Array.isArray(store.control.ipBlocks)) store.control.ipBlocks = [];
+  if (!Array.isArray(store.control.announcements)) store.control.announcements = [];
+  const BACKUP_DIR = path.join(path.dirname(dataFile), 'vc-control-backups');
+  const IP_RETENTION_MS = 30 * 86400000;
+  const clientIp = request => String(request.socket.remoteAddress || 'unknown').slice(0, 64);
+  function recordIpEvent(request, kind, userId) {
+    const now = Date.now();
+    store.control.ipEvents = store.control.ipEvents.filter(x => Date.parse(x.at) > now-IP_RETENTION_MS);
+    store.control.ipEvents.push({ip:clientIp(request), kind, userId:userId||null, at:new Date(now).toISOString()});
+    if (store.control.ipEvents.length > 10000) store.control.ipEvents.splice(0,store.control.ipEvents.length-10000);
+  }
+  function isIpBlocked(request) {
+    const ip=clientIp(request);
+    return store.control.ipBlocks.some(x=>x.ip===ip && (!x.expiresAt || Date.parse(x.expiresAt)>Date.now()));
+  }
+  function createBackup() {
+    fs.mkdirSync(BACKUP_DIR,{recursive:true,mode:0o700});
+    store.control.ipEvents=store.control.ipEvents.filter(x=>Date.parse(x.at)>Date.now()-IP_RETENTION_MS);
+    const name='vc-store-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json';
+    const target=path.join(BACKUP_DIR,name);
+    fs.writeFileSync(target,JSON.stringify(store,null,2),{flag:'wx',mode:0o600});
+    const files=fs.readdirSync(BACKUP_DIR).filter(x=>/^vc-store-.*\.json$/.test(x)).sort().reverse();
+    for(const old of files.slice(30))fs.unlinkSync(path.join(BACKUP_DIR,old));
+    return name;
+  }
+  function backupInfo(){try{return fs.readdirSync(BACKUP_DIR).filter(x=>/^vc-store-.*\.json$/.test(x)).sort().reverse().map(name=>({name,bytes:fs.statSync(path.join(BACKUP_DIR,name)).size}))}catch{return []}}
+  // Automatic daily snapshots only while the application is running.
+  let backupDate='';
+  const backupTimer=setInterval(()=>{const today=new Date().toISOString().slice(0,10);if(today===backupDate)return;backupDate=today;try{createBackup()}catch(e){console.error('VC CONTROL backup failed:',e.message)}},3600000);
+  backupTimer.unref();
+  // Initial snapshot on startup, before later modifications.
+  try{createBackup();backupDate=new Date().toISOString().slice(0,10)}catch(e){console.error('VC CONTROL initial backup failed:',e.message)}
   const reportLimits = new Map();
   function limitedReport(userId, category) {
     const key = `${category}:${userId}`; const now = Date.now();
@@ -174,7 +208,10 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
     return store.control.bans.find(b => b.userId === userId && (!b.expiresAt || Date.parse(b.expiresAt) > Date.now()));
   }
   function recordControlAction(action, targetId, reason) {
-    store.control.audit.push({ id: randomUUID(), action, targetId, reason, createdAt: new Date().toISOString() });
+    const previous=store.control.audit.at(-1)?.hash || 'GENESIS';
+    const item={ id:randomUUID(),action,targetId,reason,createdAt:new Date().toISOString(),previous };
+    item.hash=createHash('sha256').update(JSON.stringify(item)).digest('hex');
+    store.control.audit.push(item);
     // Keep audit history intact; plan external append-only audit storage for production.
   }
   function revokeUserSessions(userId) {
@@ -670,6 +707,41 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         }
         sendJson(response, 200, { ok: true }); return;
       }
+      if (request.method === "POST" && requestUrl.pathname === "/api/control/operations") {
+        let b;try{b=await readJson(request)}catch{sendJson(response,400,{error:'Geçersiz JSON.'});return}
+        const {action,reason}=b;
+        if(typeof reason!=='string'||reason.trim().length<5||reason.length>500){sendJson(response,400,{error:'En az 5 karakter gerekçe gerekli.'});return}
+        if(action==='backup'){
+          try{const name=createBackup();recordControlAction('backup',name,reason);persistStore();sendJson(response,200,{ok:true,name})}catch{sendJson(response,500,{error:'Yedekleme başarısız.'})}return;
+        }
+        if(action==='revoke_session'){
+          const entry=store.sessions.find(x=>x.id===b.id);if(!entry){sendJson(response,404,{error:'Oturum bulunamadı.'});return}
+          const old=store.sessions.slice();store.sessions=store.sessions.filter(x=>x.id!==b.id);
+          recordControlAction('revoke_session',b.id,reason);
+          try{persistStore()}catch{store.sessions=old;sendJson(response,500,{error:'Kaydedilemedi.'});return}
+          sessions.delete(entry.tokenHash);closeSessionConnections(entry.tokenHash);sendJson(response,200,{ok:true});return;
+        }
+        if(action==='ip_block'||action==='ip_unblock'){
+          const ip=String(b.ip||'');
+          if(!/^[a-fA-F0-9:.]{3,64}$/.test(ip)){sendJson(response,400,{error:'Geçersiz IP.'});return}
+          if(action==='ip_block'){
+            const days=Number(b.days||0);if(![0,1,7,30].includes(days)){sendJson(response,400,{error:'Geçersiz süre.'});return}
+            store.control.ipBlocks=store.control.ipBlocks.filter(x=>x.ip!==ip);
+            store.control.ipBlocks.push({ip,reason,at:new Date().toISOString(),expiresAt:days?new Date(Date.now()+days*86400000).toISOString():null});
+          }else store.control.ipBlocks=store.control.ipBlocks.filter(x=>x.ip!==ip);
+          recordControlAction(action,ip,reason);persistStore();sendJson(response,200,{ok:true});return;
+        }
+        if(action==='announce'||action==='remove_announcement'){
+          if(action==='announce'){
+            const message=String(b.message||'').trim();if(message.length<5||message.length>1000){sendJson(response,400,{error:'Duyuru 5-1000 karakter olmalı.'});return}
+            store.control.announcements.push({id:randomUUID(),message,at:new Date().toISOString(),active:true});
+          }else{
+            const entry=store.control.announcements.find(x=>x.id===b.id);if(!entry){sendJson(response,404,{error:'Duyuru bulunamadı.'});return}entry.active=false;
+          }
+          recordControlAction(action,b.id||'platform',reason);persistStore();sendJson(response,200,{ok:true});return;
+        }
+        sendJson(response,400,{error:'Desteklenmeyen işlem.'});return;
+      }
       if (request.method === "POST" && requestUrl.pathname === "/api/control/moderation") {
         let body; try { body = await readJson(request); } catch { sendJson(response, 400, {error:"Geçersiz istek."}); return; }
         const { action, id, status, note, registration, serverCreation, reason } = body;
@@ -689,6 +761,10 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         sendJson(response,200,{ok:true});return;
       }
       if (request.method !== "GET") { sendJson(response, 405, { error: "Yöntem desteklenmiyor." }); return; }
+      if(requestUrl.pathname==='/api/control/ip-security') {sendJson(response,200,{events:store.control.ipEvents.slice(-300).reverse(),blocks:store.control.ipBlocks});return;}
+      if(requestUrl.pathname==='/api/control/announcements') {sendJson(response,200,{announcements:store.control.announcements.slice(-100).reverse()});return;}
+      if(requestUrl.pathname==='/api/control/backups') {sendJson(response,200,{backups:backupInfo(),storage:'Railway Volume; same failure domain as app data',restore:'offline only'});return;}
+      if(requestUrl.pathname==='/api/control/health') {sendJson(response,200,{ok:true,uptimeSeconds:Math.floor(process.uptime()),websockets:webSocketServers.reduce((n,w)=>n+w.clients.size,0),backupCount:backupInfo().length});return;}
       if (requestUrl.pathname === "/api/control/reports") {sendJson(response,200,{reports:store.control.reports.slice(-300).reverse()});return;}
       if (requestUrl.pathname === "/api/control/appeals") {sendJson(response,200,{appeals:store.control.appeals.slice(-300).reverse()});return;}
       if (requestUrl.pathname === "/api/control/emergency") {sendJson(response,200,{...store.control.emergency});return;}
@@ -859,6 +935,9 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         return;
       }
 
+      if (isIpBlocked(request)) {recordIpEvent(request,'blocked',null);persistStore();sendJson(response,403,{error:'Bu bağlantı güvenlik nedeniyle kısıtlandı.'});return;}
+      recordIpEvent(request,pathname==='/api/login'?'login_attempt':'registration_attempt',null);
+      try{persistStore()}catch(e){console.error('IP event persist failed',e.message)}
       if (pathname === "/api/login") {
         const target = store.users.find(u => u.username.toLocaleLowerCase("tr") === username.toLocaleLowerCase("tr"));
         if (target && activeControlBan(target.id)) { sendJson(response, 403, { error: "Hesabınız platform tarafından askıya alındı." }); return; }
