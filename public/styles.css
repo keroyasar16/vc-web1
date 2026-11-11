@@ -1715,3 +1715,11 @@ body {
 .vc-shortcut-row kbd { padding: 6px 9px; background: #202127; border: 1px solid #484a54; border-radius: 5px; font-size: 12px; }
 .vc-shortcut-row button { width: auto; }
 #role-online-section h3 { color: #a5b4fc; }
+
+/* VC Desktop client download */
+.vc-client-actions { display:flex; align-items:center; justify-content:flex-end; gap:12px; min-width:0; }
+.vc-client-download { display:inline-flex; align-items:center; justify-content:center; gap:7px; flex-shrink:0; padding:9px 13px; border-radius:10px; border:1px solid rgba(122,156,255,.38); background:linear-gradient(135deg,#5865f2,#4752c4); color:#fff; font-size:12px; font-weight:700; text-decoration:none; white-space:nowrap; transition:filter .15s,transform .15s; }
+.vc-client-download:hover { filter:brightness(1.13); transform:translateY(-1px); }
+.vc-client-download:focus-visible { outline:2px solid #fff; outline-offset:3px; }
+.vc-client-download-workspace { padding:7px 10px; font-size:11px; }
+@media(max-width:640px) { .vc-client-actions { gap:7px; } .vc-client-actions .topbar-note { display:none; } .vc-client-download { padding:8px 10px; font-size:11px; } .vc-client-download-workspace .vc-download-label { display:none; } .vc-client-download-workspace { font-size:16px; padding:5px 9px; } }
