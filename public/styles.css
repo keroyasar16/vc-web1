@@ -1625,3 +1625,19 @@ body {
 .chat-profile-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 /* Profile photos in chat and direct messages */
 .chat-avatar.has-photo, .dm-header .friend-avatar.has-photo { background-size: cover !important; background-position: center !important; background-repeat: no-repeat !important; }
+
+/* VC message actions and pinned messages */
+.chat-message { position: relative; }
+.vc-message-actions { position: absolute; right: 8px; top: 5px; z-index: 3; }
+.vc-message-menu-trigger { border: 1px solid rgba(255,255,255,.13); background: #252831; color: #ddd; border-radius: 7px; padding: 1px 9px; font-size: 21px; cursor: pointer; }
+.vc-message-menu { position: absolute; right: 0; top: 32px; min-width: 190px; padding: 5px; background: #22252e; border: 1px solid #454954; border-radius: 9px; box-shadow: 0 12px 30px #0008; }
+.vc-message-menu[hidden], .vc-pinned-bar[hidden] { display: none !important; }
+.vc-message-menu button { width: 100%; padding: 9px 10px; text-align: left; background: transparent; border: 0; border-radius: 5px; color: #f2f2f2; cursor: pointer; }
+.vc-message-menu button:hover { background: #383c48; }
+.vc-pinned-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; padding: 9px 12px; border-bottom: 1px solid #434850; background: #22252d; }
+.vc-pinned-bar strong { font-size: 11px; }
+.vc-pinned-bar button { max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid #4b505b; border-radius: 6px; padding: 5px 8px; background: #30343e; color: #e6e6e6; cursor: pointer; font-size: 11px; }
+.vc-pinned-message { border-left: 2px solid #c8f169; }
+.vc-highlight-message { outline: 2px solid #c8f169; }
+.vc-edited-indicator { color: #8e929d; font-size: 10px; }
+.vc-role-message-permission { display: flex; gap: 8px; align-items: center; padding: 8px; }
