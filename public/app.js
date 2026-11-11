@@ -602,6 +602,7 @@ function connectDirectMessage(friend) {
     }
     if (message.type === "dm-history") {
       dmMessages.replaceChildren();
+      messageState.dm.clear();
       for (const item of message.messages) appendDirectMessage(item);
       if (message.messages.length === 0) {
         const empty = document.createElement("p");
@@ -615,6 +616,8 @@ function connectDirectMessage(friend) {
       dmInput.focus();
     } else if (message.type === "dm-message") {
       appendDirectMessage(message.message);
+    } else if (message.type === "message-change") {
+      handleMessageChange("dm", message);
     } else if (message.type === "dm-error") {
       showToast(message.message);
     }
@@ -732,10 +735,128 @@ function applyLiveProfile(profile, skipFullRender = false) {
   }
 }
 
+let canManageChatMessages = false;
+const messageState = { chat: new Map(), dm: new Map() };
+function messagePinnedBar(kind) {
+  const root = kind === "chat" ? chatMessages : dmMessages;
+  const parent = root?.parentElement;
+  if (!parent) return;
+  let bar = parent.querySelector(`.vc-pinned-bar[data-kind="${kind}"]`);
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.className = "vc-pinned-bar";
+    bar.dataset.kind = kind;
+    root.before(bar);
+  }
+  bar.replaceChildren();
+  const pins = [...messageState[kind].values()].filter((item) => item.pinnedAt);
+  bar.hidden = !pins.length;
+  if (!pins.length) return;
+  const title = document.createElement("strong");
+  title.textContent = `📌 Sabitlenen mesajlar (${pins.length})`;
+  bar.append(title);
+  for (const pin of pins) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `${pin.name || "Üye"}: ${pin.text.slice(0, 65)}`;
+    button.addEventListener("click", () => {
+      const target = [...root.querySelectorAll(".chat-message")].find((node) => node.dataset.messageId === pin.id);
+      target?.scrollIntoView({ behavior: "smooth", block: "center" });
+      target?.classList.add("vc-highlight-message");
+      setTimeout(() => target?.classList.remove("vc-highlight-message"), 1800);
+    });
+    bar.append(button);
+  }
+}
+function handleMessageChange(kind, update) {
+  const root = kind === "chat" ? chatMessages : dmMessages;
+  if (update.action === "message-delete") messageState[kind].delete(update.messageId);
+  else if (update.message?.id) messageState[kind].set(update.message.id, update.message);
+  const node = [...root.querySelectorAll(".chat-message")].find((item) => item.dataset.messageId === update.messageId);
+  if (update.action === "message-delete") node?.remove();
+  else if (node && update.message) {
+    const text = node.querySelector(".vc-message-text");
+    if (text) {
+      text.replaceChildren();
+      if (kind === "chat") appendChatMessageText(text, update.message.text);
+      else text.textContent = update.message.text;
+    }
+    node.classList.toggle("vc-pinned-message", Boolean(update.message.pinnedAt));
+    node.querySelector(".vc-edited-indicator")?.remove();
+    if (update.message.editedAt) {
+      const edited = document.createElement("small");
+      edited.className = "vc-edited-indicator";
+      edited.textContent = "(düzenlendi)";
+      node.querySelector(".chat-message-meta")?.append(edited);
+    }
+  }
+  messagePinnedBar(kind);
+}
+function attachMessageActions(article, message, kind) {
+  if (!message.id) return;
+  article.dataset.messageId = message.id;
+  article.classList.toggle("vc-pinned-message", Boolean(message.pinnedAt));
+  messageState[kind].set(message.id, message);
+  const own = Boolean(accountUser && message.senderId === accountUser.id);
+  const moderator = kind === "chat" && canManageChatMessages;
+  if (!own && !moderator) return;
+  const holder = document.createElement("div");
+  holder.className = "vc-message-actions";
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "vc-message-menu-trigger";
+  trigger.textContent = "⋯";
+  trigger.setAttribute("aria-label", "Mesaj seçenekleri");
+  const menu = document.createElement("div");
+  menu.className = "vc-message-menu";
+  menu.hidden = true;
+  trigger.addEventListener("click", (event) => { event.stopPropagation(); menu.hidden = !menu.hidden; });
+  document.addEventListener("click", (event) => { if (!holder.contains(event.target)) menu.hidden = true; }, { signal: messageMenuAbort.signal });
+  const action = (label, fn) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = label;
+    button.addEventListener("click", () => { menu.hidden = true; fn(); });
+    menu.append(button);
+  };
+  const send = (type, extra = {}) => {
+    const socket = kind === "chat" ? chatSocket : directMessageSocket;
+    if (socket?.readyState !== WebSocket.OPEN) { showToast("Sohbet bağlantısı hazır değil."); return; }
+    socket.send(JSON.stringify({ type, messageId: message.id, ...extra }));
+  };
+  if (own) action("✎ Düzenle", () => {
+    const current = messageState[kind].get(message.id);
+    const value = prompt("Mesajı düzenle:", current?.text || "");
+    if (value !== null && value.trim()) send("message-edit", { text: value.trim() });
+  });
+  action("🗑 Sil", () => { if (confirm("Bu mesaj silinsin mi?")) send("message-delete"); });
+  action("📌 Başa tuttur / kaldır", () => send("message-pin"));
+  holder.append(trigger, menu);
+  article.append(holder);
+}
+const messageMenuAbort = new AbortController();
+function ensureMessageRolePermission() {
+  const form = document.querySelector("#server-role-form");
+  if (!form || form.querySelector('input[name="permissions"][value="manage_messages"]')) return;
+  const label = document.createElement("label");
+  label.className = "vc-role-message-permission";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.name = "permissions";
+  checkbox.value = "manage_messages";
+  const span = document.createElement("span");
+  span.textContent = "Mesajları Yönet — Üyelerin mesajlarını silme ve sabitleme";
+  label.append(checkbox, span);
+  const permissionGroup = form.querySelector('input[name="permissions"]')?.parentElement?.parentElement;
+  (permissionGroup || form).append(label);
+}
+ensureMessageRolePermission();
+
 function appendDirectMessage(message) {
   dmMessages.querySelector(".dm-empty-state")?.remove();
   const article = document.createElement("article");
   article.className = `chat-message${message.senderId === accountUser?.id ? " is-own-message" : ""}`;
+  article.dataset.messageId = message.id || "";
   const avatar = document.createElement("span");
   avatar.className = "chat-avatar";
   article.dataset.senderId = message.senderId || "";
@@ -756,10 +877,14 @@ function appendDirectMessage(message) {
   });
   const text = document.createElement("p");
   text.textContent = message.text;
+  text.classList.add("vc-message-text");
   metadata.append(author, timestamp);
   content.append(metadata, text);
   article.append(avatar, content);
+  attachMessageActions(article, message, "dm");
+  if (message.editedAt) { const edited = document.createElement("small"); edited.className = "vc-edited-indicator"; edited.textContent = "(düzenlendi)"; metadata.append(edited); }
   dmMessages.append(article);
+  messagePinnedBar("dm");
   dmMessages.scrollTop = dmMessages.scrollHeight;
 }
 
@@ -2412,6 +2537,7 @@ function renderServerRoleMembers() {
 }
 
 function showServerRoleEditor(role) {
+  ensureMessageRolePermission();
   editingServerRole = role;
   document.querySelector("#roles-list-panel").hidden = true;
   serverRoleForm.hidden = false;
@@ -2976,6 +3102,8 @@ function openServerChat(server, channelId, title) {
       document.querySelector("#retry-chat").hidden = true;
       document.querySelector("#chat-subtitle").textContent = "Mesajların sunucuda saklanır.";
       chatMessages.replaceChildren();
+      messageState.chat.clear();
+      canManageChatMessages = Boolean(message.canManageMessages);
       if (message.messages.length === 0) {
         const emptyState = document.createElement("div");
         emptyState.className = "chat-empty-state";
@@ -2992,6 +3120,14 @@ function openServerChat(server, channelId, title) {
       }
     } else if (message.type === "chat-message") {
       appendChatMessage(message.message);
+    } else if (message.type === "message-change") {
+      handleMessageChange("chat", message);
+    } else if (message.type === "message-permissions") {
+      canManageChatMessages = Boolean(message.canManageMessages);
+      for (const [id, record] of messageState.chat) {
+        const node = [...chatMessages.querySelectorAll(".chat-message")].find((item) => item.dataset.messageId === id);
+        if (node && !node.querySelector(".vc-message-actions")) attachMessageActions(node, record, "chat");
+      }
     } else if (message.type === "chat-error") {
       showToast(message.message);
     } else if (message.type === "server-members") {
@@ -3676,10 +3812,14 @@ function appendChatMessage(message) {
   });
   const text = document.createElement("p");
   appendChatMessageText(text, message.text);
+  text.classList.add("vc-message-text");
   metadata.append(author, timestamp);
   content.append(metadata, text);
   article.append(avatar, content);
+  attachMessageActions(article, message, "chat");
+  if (message.editedAt) { const edited = document.createElement("small"); edited.className = "vc-edited-indicator"; edited.textContent = "(düzenlendi)"; metadata.append(edited); }
   chatMessages.append(article);
+  messagePinnedBar("chat");
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
