@@ -1704,3 +1704,14 @@ body {
 .vc-announcement-preview{right:0;bottom:56px;touch-action:auto;user-select:text}
 .vc-announcement-widget.vc-announcement-dragging .vc-announcement-preview{display:none!important}
 @media(max-width:600px){.vc-announcement-widget{right:12px;bottom:12px}.vc-announcement-trigger{width:42px;height:42px;min-width:42px;min-height:42px;padding:0}}
+
+/* VC: role grouping, per-user voice controls and configurable shortcuts */
+.vc-member-volume { padding: 9px; display: grid; gap: 8px; color: #e3e5e8; font-size: 12px; }
+.vc-member-volume label { display: flex; justify-content: space-between; gap: 8px; }
+.vc-member-volume input { width: 100%; accent-color: #5865f2; }
+.vc-shortcut-list { display: grid; gap: 10px; margin: 16px 0; }
+.vc-shortcut-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; border: 1px solid #35363c; border-radius: 8px; }
+.vc-shortcut-row > span { flex: 1 1 180px; }
+.vc-shortcut-row kbd { padding: 6px 9px; background: #202127; border: 1px solid #484a54; border-radius: 5px; font-size: 12px; }
+.vc-shortcut-row button { width: auto; }
+#role-online-section h3 { color: #a5b4fc; }

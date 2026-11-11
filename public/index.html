@@ -265,6 +265,10 @@
               <h2>Üyeler ve çevrim içi hesaplar</h2>
               <span id="server-member-count" class="server-member-count">0</span>
             </header>
+            <section class="server-member-group" id="role-online-section" aria-labelledby="role-online-title" hidden>
+              <h3 id="role-online-title">✦ ÇEVRİMİÇİ ROL SAHİPLERİ <span id="role-online-count">0</span></h3>
+              <div id="role-online-members" class="server-member-list"></div>
+            </section>
             <section class="server-member-group" aria-labelledby="online-members-title">
               <h3 id="online-members-title"><span class="member-status-dot is-online"></span>ÇEVRİMİÇİ HESAPLAR <span id="online-member-count">0</span></h3>
               <div id="online-members" class="server-member-list"></div>
@@ -438,6 +442,7 @@
           <nav class="user-settings-tabs" aria-label="Kullanıcı ayarları">
             <button type="button" class="is-active" data-settings-page="security">Şifre ve Güvenlik</button>
             <button type="button" data-settings-page="audio">Ses</button>
+            <button type="button" data-settings-page="shortcuts">Kısayol Tuşları</button>
           </nav>
           <section class="user-settings-page" data-settings-content="security">
             <button id="edit-user-profile" class="settings-secondary-button" type="button">Profili düzenle</button>
@@ -477,6 +482,12 @@
             </div>
             <button id="speaker-test-button" class="settings-secondary-button" type="button">Hoparlör Testi</button>
             <p class="settings-note">Ses cihazı seçimleri bu tarayıcıda saklanır. Mikrofon izni için HTTPS veya localhost gerekir.</p>
+          </section>
+          <section class="user-settings-page" data-settings-content="shortcuts" hidden>
+            <h3 class="settings-section-title">Özel Tuş Atamaları</h3>
+            <p class="settings-note">Atamak istediğin işlemin yanındaki Tuş Ata düğmesine bas, ardından klavyeden bir kombinasyon seç. ESC iptal eder. Kısayollar yalnızca VC sekmesi aktifken çalışır.</p>
+            <div id="vc-shortcut-list" class="vc-shortcut-list"></div>
+            <p class="settings-note">Mesaj yazarken kısayollar çalışmaz. Tarayıcının veya işletim sisteminin ayırdığı tuşlar kullanılamayabilir.</p>
           </section>
           <div class="dialog-actions">
             <button id="cancel-user-settings" class="dialog-cancel" type="button">Kapat</button>
