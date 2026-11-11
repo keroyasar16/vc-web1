@@ -874,6 +874,48 @@ function attachMessageActions(article, message, kind) {
   });
   holder.append(trigger);
   article.append(holder);
+  // Mobil: mesaj üzerinde uzun basma ile aynı yetki kontrollü menüyü aç.
+  // Masaüstündeki üç nokta butonu ve işlem mantığı değişmez.
+  let longPressTimer = null;
+  let startX = 0;
+  let startY = 0;
+  let suppressClick = false;
+  const cancelLongPress = () => {
+    if (longPressTimer !== null) window.clearTimeout(longPressTimer);
+    longPressTimer = null;
+  };
+  article.addEventListener("touchstart", (event) => {
+    if (!window.matchMedia("(max-width: 700px)").matches) return;
+    if (event.touches.length !== 1 || event.target.closest("button, a, input, textarea, select, .vc-message-menu")) return;
+    cancelLongPress();
+    startX = event.touches[0].clientX;
+    startY = event.touches[0].clientY;
+    longPressTimer = window.setTimeout(() => {
+      longPressTimer = null;
+      suppressClick = true;
+      trigger.click();
+      if (navigator.vibrate) navigator.vibrate(12);
+    }, 520);
+  }, { passive: true });
+  article.addEventListener("touchmove", (event) => {
+    if (longPressTimer === null) return;
+    const touch = event.touches[0];
+    if (!touch || Math.hypot(touch.clientX - startX, touch.clientY - startY) > 12) cancelLongPress();
+  }, { passive: true });
+  article.addEventListener("touchend", cancelLongPress, { passive: true });
+  article.addEventListener("touchcancel", cancelLongPress, { passive: true });
+  article.addEventListener("contextmenu", (event) => {
+    if (!window.matchMedia("(max-width: 700px)").matches) return;
+    event.preventDefault();
+    cancelLongPress();
+    if (!openVcMessageMenu || openVcMessageMenu.trigger !== trigger) trigger.click();
+  });
+  article.addEventListener("click", (event) => {
+    if (!suppressClick) return;
+    suppressClick = false;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
 }
 const messageMenuAbort = new AbortController();
 function ensureMessageRolePermission() {
