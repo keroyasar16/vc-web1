@@ -1641,3 +1641,27 @@ body {
 .vc-highlight-message { outline: 2px solid #c8f169; }
 .vc-edited-indicator { color: #8e929d; font-size: 10px; }
 .vc-role-message-permission { display: flex; gap: 8px; align-items: center; padding: 8px; }
+
+/* Compact, viewport-layer message menu: no overlap with other message buttons. */
+.chat-message { min-height: 34px; padding-right: 43px; }
+.vc-message-actions { right: 5px; top: 3px; z-index: 2; }
+.vc-message-menu-trigger {
+  display: grid; place-items: center; width: 30px; height: 27px; padding: 0;
+  font: 700 19px/1 "DM Sans", sans-serif; border-radius: 6px;
+}
+.vc-message-menu {
+  position: fixed; right: auto; top: auto; z-index: 99999;
+  width: 164px; min-width: 0; padding: 4px;
+  border-radius: 8px; box-shadow: 0 12px 28px rgba(0,0,0,.5);
+}
+.vc-message-menu button {
+  display: flex; align-items: center; gap: 9px; width: 100%; min-height: 32px;
+  padding: 6px 8px; font: 500 12px/1.3 "DM Sans", sans-serif;
+  white-space: nowrap; text-align: left;
+}
+.vc-message-menu-icon { width: 18px; flex: 0 0 18px; text-align: center; font-size: 14px; line-height: 1; }
+.vc-message-menu-label { flex: 1; min-width: 0; }
+.vc-message-menu button.is-danger { color: #ff9a9a; }
+.vc-message-menu button:focus-visible, .vc-message-menu-trigger:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
