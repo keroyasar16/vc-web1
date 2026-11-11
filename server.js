@@ -153,6 +153,23 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
     if (!Array.isArray(server.bannedUserIds)) server.bannedUserIds = [];
   }
 
+  // VC CONTROL 2.0 moderation state; persisted with existing atomic store writer.
+  if (!store.control || typeof store.control !== "object") store.control = {};
+  if (!Array.isArray(store.control.bans)) store.control.bans = [];
+  if (!Array.isArray(store.control.audit)) store.control.audit = [];
+  function activeControlBan(userId) {
+    return store.control.bans.find(b => b.userId === userId && (!b.expiresAt || Date.parse(b.expiresAt) > Date.now()));
+  }
+  function recordControlAction(action, targetId, reason) {
+    store.control.audit.push({ id: randomUUID(), action, targetId, reason, createdAt: new Date().toISOString() });
+    // Keep audit history intact; plan external append-only audit storage for production.
+  }
+  function revokeUserSessions(userId) {
+    const revoked = store.sessions.filter(s => s.userId === userId);
+    store.sessions = store.sessions.filter(s => s.userId !== userId);
+    for (const session of revoked) { sessions.delete(session.tokenHash); closeSessionConnections(session.tokenHash); }
+  }
+
   // Short, cryptographically random invitation codes; avoid collisions with old aliases.
   const INVITE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
   function generateInviteCode() {
@@ -239,13 +256,15 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
     const token = request.headers.authorization?.match(/^Bearer ([\da-f-]{36})$/i)?.[1];
     if (!token) return undefined;
     const tokenHash = createHash("sha256").update(token).digest("hex");
-    return store.users.find((user) => user.id === sessions.get(tokenHash));
+    const user = store.users.find((user) => user.id === sessions.get(tokenHash));
+    return user && !activeControlBan(user.id) ? user : undefined;
   }
 
   function getUserFromToken(token) {
     if (typeof token !== "string" || !token || token.length > 128) return undefined;
     const tokenHash = createHash("sha256").update(token).digest("hex");
-    return store.users.find((user) => user.id === sessions.get(tokenHash));
+    const user = store.users.find((user) => user.id === sessions.get(tokenHash));
+    return user && !activeControlBan(user.id) ? user : undefined;
   }
 
   function closeSessionConnections(tokenHash) {
@@ -598,7 +617,50 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         typeof supplied === "string" && supplied.length === expected.length &&
         timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
       if (!ok) { sendJson(response, 403, { error: "Erişim reddedildi." }); return; }
+      if (request.method === "POST" && requestUrl.pathname === "/api/control/action") {
+        let body;
+        try { body = await readJson(request); } catch { sendJson(response, 400, { error: "Geçersiz istek." }); return; }
+        const { action, targetId, reason, expiresAt } = body;
+        if (typeof targetId !== "string" || targetId.length > 128 ||
+            typeof reason !== "string" || reason.trim().length < 5 || reason.length > 500) {
+          sendJson(response, 400, { error: "Geçerli hedef ve en az 5 karakter gerekçe gerekli." }); return;
+        }
+        if (!["ban", "unban", "lock", "unlock"].includes(action)) {
+          sendJson(response, 400, { error: "Desteklenmeyen işlem." }); return;
+        }
+        if (["ban", "unban"].includes(action) && !store.users.some(u => u.id === targetId) ||
+            ["lock", "unlock"].includes(action) && !store.servers.some(s => s.id === targetId)) {
+          sendJson(response, 404, { error: "Hedef bulunamadı." }); return;
+        }
+        if (action === "ban" && expiresAt != null &&
+            (typeof expiresAt !== "string" || !Number.isFinite(Date.parse(expiresAt)) ||
+             Date.parse(expiresAt) <= Date.now() || Date.parse(expiresAt) > Date.now() + 366*86400000)) {
+          sendJson(response, 400, { error: "Ban bitiş tarihi geçersiz." }); return;
+        }
+        const before = JSON.stringify(store.control);
+        const server = store.servers.find(s => s.id === targetId);
+        const previousLocked = server?.controlLocked;
+        if (action === "ban") {
+          store.control.bans = store.control.bans.filter(b => b.userId !== targetId);
+          store.control.bans.push({ userId: targetId, reason: reason.trim(), createdAt: new Date().toISOString(), expiresAt: expiresAt || null });
+        } else if (action === "unban") store.control.bans = store.control.bans.filter(b => b.userId !== targetId);
+        else server.controlLocked = action === "lock";
+        recordControlAction(action, targetId, reason.trim());
+        try { persistStore(); } catch (error) {
+          store.control = JSON.parse(before);
+          if (server) server.controlLocked = previousLocked;
+          sendJson(response, 500, { error: "İşlem kaydedilemedi." }); return;
+        }
+        if (action === "ban") {
+          revokeUserSessions(targetId);
+          try { persistStore(); } catch (error) { console.error("Ban sonrası oturumlar kaydedilemedi:", error); }
+        }
+        sendJson(response, 200, { ok: true }); return;
+      }
       if (request.method !== "GET") { sendJson(response, 405, { error: "Yöntem desteklenmiyor." }); return; }
+      if (requestUrl.pathname === "/api/control/audit") {
+        sendJson(response, 200, { audit: store.control.audit.slice(-100).reverse() }); return;
+      }
       if (requestUrl.pathname === "/api/control/overview") {
         sendJson(response, 200, { users: store.users.length, servers: store.servers.length,
           sessions: store.sessions.length, messages: store.messages.length,
@@ -611,7 +673,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       }
       if (requestUrl.pathname === "/api/control/users") {
         sendJson(response, 200, { users: store.users.map(u => ({ id:u.id, username:u.username,
-          createdAt:u.createdAt || null })) }); return;
+          createdAt:u.createdAt || null, banned:Boolean(activeControlBan(u.id)), banExpiresAt:activeControlBan(u.id)?.expiresAt || null })) }); return;
       }
       sendJson(response, 404, { error: "Kontrol adresi bulunamadı." }); return;
     }
@@ -734,6 +796,10 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         return;
       }
 
+      if (pathname === "/api/login") {
+        const target = store.users.find(u => u.username.toLocaleLowerCase("tr") === username.toLocaleLowerCase("tr"));
+        if (target && activeControlBan(target.id)) { sendJson(response, 403, { error: "Hesabınız platform tarafından askıya alındı." }); return; }
+      }
       const normalizedUsername = username.toLocaleLowerCase("tr");
       let user;
       if (pathname === "/api/register") {
@@ -2338,6 +2404,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         return;
       }
       const serverRecord = resolved.server;
+      if (serverRecord.controlLocked) { sendJson(response, 403, { error: "Bu sunucu yönetim tarafından kilitlendi." }); return; }
       const user = getUser(request);
       if (user && serverRecord.bannedUserIds?.includes(user.id)) {
         sendJson(response, 403, { error: "Bu sunucudan yasaklandığın için tekrar katılamazsın." });
