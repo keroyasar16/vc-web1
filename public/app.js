@@ -779,7 +779,7 @@ function handleMessageChange(kind, update) {
     if (text) {
       text.replaceChildren();
       if (kind === "chat") appendChatMessageText(text, update.message.text);
-      else text.textContent = update.message.text;
+      else { text.textContent = update.message.text; linkifyMessageText(text); }
     }
     node.classList.toggle("vc-pinned-message", Boolean(update.message.pinnedAt));
     node.querySelector(".vc-edited-indicator")?.remove();
@@ -935,6 +935,49 @@ function ensureMessageRolePermission() {
 }
 ensureMessageRolePermission();
 
+// Mesajlardaki HTTP(S) adreslerini güvenli, tıklanabilir bağlantılara dönüştür.
+// HTML yorumlanmaz; kullanıcı metni yalnızca textContent/text node olarak işlenir.
+function linkifyMessageText(root) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  const urlPattern = /https?:\/\/[^\s<>"'`]+/gi;
+  for (const node of nodes) {
+    if (node.parentElement?.closest("a, code, pre")) continue;
+    const original = node.nodeValue;
+    urlPattern.lastIndex = 0;
+    let match;
+    let cursor = 0;
+    const fragment = document.createDocumentFragment();
+    let changed = false;
+    while ((match = urlPattern.exec(original)) !== null) {
+      let raw = match[0];
+      // Cümle sonunda bağlantıya ait olmayan noktalama işaretlerini ayır.
+      while (/[.,!?;:]+$/.test(raw)) raw = raw.slice(0, -1);
+      while (raw.endsWith(")") && (raw.match(/\(/g) || []).length < (raw.match(/\)/g) || []).length) raw = raw.slice(0, -1);
+      if (!raw) continue;
+      let url;
+      try { url = new URL(raw); } catch { continue; }
+      if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+      const start = match.index;
+      fragment.append(document.createTextNode(original.slice(cursor, start)));
+      const anchor = document.createElement("a");
+      anchor.href = url.href;
+      anchor.textContent = raw;
+      anchor.target = "_blank";
+      anchor.rel = "noopener noreferrer ugc nofollow";
+      anchor.className = "vc-message-link";
+      fragment.append(anchor);
+      cursor = start + raw.length;
+      changed = true;
+    }
+    if (changed) {
+      fragment.append(document.createTextNode(original.slice(cursor)));
+      node.replaceWith(fragment);
+    }
+  }
+}
+
 function appendDirectMessage(message) {
   dmMessages.querySelector(".dm-empty-state")?.remove();
   const article = document.createElement("article");
@@ -960,6 +1003,7 @@ function appendDirectMessage(message) {
   });
   const text = document.createElement("p");
   text.textContent = message.text;
+  linkifyMessageText(text);
   text.classList.add("vc-message-text");
   metadata.append(author, timestamp);
   content.append(metadata, text);
@@ -4016,6 +4060,7 @@ function appendChatMessageText(element, value) {
     .sort((a, b) => b.length - a.length);
   if (usernames.length === 0) {
     element.textContent = value;
+    linkifyMessageText(element);
     return;
   }
   const escapedUsernames = usernames.map((username) => username.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
@@ -4042,6 +4087,7 @@ function appendChatMessageText(element, value) {
     cursor = mentionStart + match[2].length;
   }
   element.append(document.createTextNode(value.slice(cursor)));
+  linkifyMessageText(element);
 }
 
 chatForm.addEventListener("submit", (event) => {
