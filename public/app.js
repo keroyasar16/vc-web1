@@ -139,6 +139,7 @@ function setParticipantVideoTrack(id, kind, track) {
   if (Object.keys(tracks).length) participantVideoTracks.set(id, tracks);
   else participantVideoTracks.delete(id);
   renderParticipant(id, participantNames.get(id) || displayName || "Katılımcı", participantStreams.get(id));
+  if (kind === "screen") refreshVcSharePreview(id);
 }
 
 function restoreIgnoredUsers() {
@@ -4404,11 +4405,30 @@ function createPeerConnection(peerId, name, shouldOffer) {
       renderParticipant(peerId, name, stream);
       return;
     }
-    const kind = screenTransceiver.receiver.track === track ? "screen" :
-      cameraTransceiver.receiver.track === track ? "camera" : undefined;
-    if (!kind) return;
+    // event.transceiver identifies the negotiated m-line more reliably than
+    // comparing receiver tracks (which can change during renegotiation).
+    const receiver = event.transceiver?.receiver;
+    const kind = event.transceiver === screenTransceiver || receiver === screenTransceiver.receiver
+      ? "screen" : event.transceiver === cameraTransceiver || receiver === cameraTransceiver.receiver
+        ? "camera" : undefined;
+    if (!kind) {
+      console.warn("VC: eşleştirilemeyen uzak video track", peerId, event.transceiver?.mid);
+      return;
+    }
     setParticipantVideoTrack(peerId, kind, track);
-    track.addEventListener("ended", () => setParticipantVideoTrack(peerId, kind, undefined), { once: true });
+    track.addEventListener("unmute", () => {
+      if (peers.get(peerId)?.connection === connection) {
+        setParticipantVideoTrack(peerId, kind, track);
+        refreshVcSharePreview(peerId);
+      }
+    });
+    track.addEventListener("mute", () => {
+      if (peers.get(peerId)?.connection === connection)
+        renderParticipant(peerId, participantNames.get(peerId) || name, participantStreams.get(peerId));
+    });
+    track.addEventListener("ended", () => {
+      if (peers.get(peerId)?.connection === connection) setParticipantVideoTrack(peerId, kind, undefined);
+    }, { once: true });
   });
   connection.addEventListener("connectionstatechange", () => {
     if (connection.connectionState === "failed") showToast(`${name} ile bağlantı kurulamadı`);
@@ -4472,6 +4492,21 @@ function closeVcSharePreview() {
   vcSharePreview.popup.remove();
   vcSharePreview = undefined;
 }
+function refreshVcSharePreview(peerId) {
+  if (!vcSharePreview || vcSharePreview.peerId !== peerId) return;
+  const frame = vcSharePreview.popup.querySelector(".vc-share-preview-frame");
+  if (!frame) return;
+  const track = participantVideoTracks.get(peerId)?.screen;
+  if (!track || track.readyState !== "live" || track.muted) return;
+  if (frame.querySelector("video")) return;
+  const video = document.createElement("video");
+  video.autoplay = true;
+  video.muted = true;
+  video.playsInline = true;
+  video.srcObject = new MediaStream([track]);
+  frame.replaceChildren(video);
+  video.play().catch((error) => console.debug("VC yayın önizlemesi bekliyor:", error));
+}
 function openVcSharePreview(anchor, peerId, name, server, channel) {
   closeVcSharePreview();
   const popup = document.createElement("div");
@@ -4484,7 +4519,7 @@ function openVcSharePreview(anchor, peerId, name, server, channel) {
   frame.className = "vc-share-preview-frame";
   const track = participantVideoTracks.get(peerId)?.screen;
   const sameChannel = Boolean(voiceActive && currentServer?.id === server?.id && currentChannel?.id === channel?.id);
-  if (sameChannel && track?.readyState === "live") {
+  if (sameChannel && track?.readyState === "live" && !track.muted) {
     const video = document.createElement("video");
     video.autoplay = true;
     video.muted = true;
@@ -4523,7 +4558,7 @@ function openVcSharePreview(anchor, peerId, name, server, channel) {
   const top = Math.max(8, Math.min(window.innerHeight - height - 8, bounds.top));
   popup.style.left = `${left}px`;
   popup.style.top = `${top}px`;
-  vcSharePreview = { popup, anchor };
+  vcSharePreview = { popup, anchor, peerId };
   popup.addEventListener("mouseleave", () => window.setTimeout(() => {
     if (vcSharePreview?.popup === popup && !anchor.matches(":hover") && !popup.matches(":hover")) closeVcSharePreview();
   }, 180));
@@ -4637,7 +4672,11 @@ function renderParticipant(id, name, stream) {
       card.prepend(video);
     }
     video.muted = id === "self" || soundMuted;
-    video.srcObject = new MediaStream([track]);
+    if (video._vcTrack !== track) {
+      video._vcTrack = track;
+      video.srcObject = new MediaStream([track]);
+    }
+    if (!track.muted) video.play().catch((error) => console.debug("VC uzak video oynatılamadı:", error));
   }
 
   if (id !== "self" && stream?.getAudioTracks().length) {
