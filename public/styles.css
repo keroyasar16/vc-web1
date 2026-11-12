@@ -1765,3 +1765,14 @@ body {
  .user-settings-page #vc-shortcut-list .vc-shortcut-action { grid-column:1/-1; }
  .user-settings-page #vc-shortcut-list .vc-shortcut-binding { grid-column:1; }
 }
+
+/* VC stream hover preview */
+.vc-share-preview-trigger { cursor: pointer; }
+.vc-share-preview-trigger:focus-visible { outline: 2px solid #7d83ff; outline-offset: 3px; }
+.vc-share-preview { position: fixed; z-index: 99999; width: min(330px, calc(100vw - 20px)); padding: 12px; background: #1c1e25; border: 1px solid #414452; border-radius: 12px; box-shadow: 0 16px 48px rgba(0,0,0,.5); color: #f3f4f8; display: grid; gap: 10px; }
+.vc-share-preview strong { font-size: 13px; }
+.vc-share-preview-frame { aspect-ratio: 16/9; background: #101116; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; color: #b6b9c5; font-size: 12px; text-align: center; padding: 8px; }
+.vc-share-preview-frame video { width: 100%; height: 100%; object-fit: contain; }
+.vc-share-preview-join { background: #5865f2; color: #fff; border: 0; border-radius: 7px; padding: 9px 12px; cursor: pointer; font-weight: 700; }
+.vc-share-preview-join:hover { background: #4752c4; }
+.vc-share-preview-highlight { outline: 2px solid #5865f2; outline-offset: 2px; }

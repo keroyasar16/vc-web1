@@ -131,6 +131,16 @@ let bannedMembersDialog;
 let moderationDialog;
 const ignoredUserIds = new Set();
 
+// Remote screen and camera tracks must be accessible to every voice handler.
+function setParticipantVideoTrack(id, kind, track) {
+  const tracks = participantVideoTracks.get(id) || {};
+  if (track) tracks[kind] = track;
+  else delete tracks[kind];
+  if (Object.keys(tracks).length) participantVideoTracks.set(id, tracks);
+  else participantVideoTracks.delete(id);
+  renderParticipant(id, participantNames.get(id) || displayName || "Katılımcı", participantStreams.get(id));
+}
+
 function restoreIgnoredUsers() {
   ignoredUserIds.clear();
   if (!accountUser) return;
@@ -142,14 +152,6 @@ function restoreIgnoredUsers() {
       throw new Error("Yok sayılan kullanıcı listesi geçersiz.");
     }
 
-    function setParticipantVideoTrack(id, kind, track) {
-      const tracks = participantVideoTracks.get(id) || {};
-      if (track) tracks[kind] = track;
-      else delete tracks[kind];
-      if (Object.keys(tracks).length) participantVideoTracks.set(id, tracks);
-      else participantVideoTracks.delete(id);
-      renderParticipant(id, participantNames.get(id) || displayName || "Katılımcı", participantStreams.get(id));
-    }
     for (const userId of userIds) ignoredUserIds.add(userId);
   } catch (error) {
     console.error("Yok sayılan kullanıcılar yüklenemedi:", error);
@@ -1788,7 +1790,9 @@ const memberVolumes = new Map();
 const memberGainNodes = new WeakMap();
 let memberVolumeContext;
 function getMemberVolume(id) {
-  const stored = Number(localStorage.getItem(`vc.memberVolume.${id}`));
+  const raw = localStorage.getItem(`vc.memberVolume.${id}`);
+  if (raw === null || raw === "") return 100;
+  const stored = Number(raw);
   return Number.isFinite(stored) && stored >= 0 && stored <= 200 ? stored : 100;
 }
 function setMemberVolume(id, level) {
@@ -2916,9 +2920,14 @@ function renderChannelParticipants(list, server, channel) {
         ? getParticipantState("self").microphoneMuted : member.microphoneMuted === true,
       soundMuted: member.id === accountUser?.id && voiceActive && currentServer?.id === server.id && currentChannel?.id === channel.id
         ? soundMuted : member.soundMuted === true,
-      sharing: false, camera: false,
+      sharing: member.sharing === true, camera: false,
     };
-    participant.append(avatar, participantName, createParticipantIndicators(state));
+    const indicators = createParticipantIndicators(state);
+    participant.append(avatar, participantName, indicators);
+    if (state.sharing) {
+      const badge = indicators.querySelector(".participant-sharing-badge");
+      if (badge) attachVcSharePreview(badge, participantId, name, server, channel);
+    }
     list.append(participant);
   }
 }
@@ -4455,6 +4464,89 @@ function getParticipantState(id) {
   return participantStates.get(id) || { microphoneMuted: false, soundMuted: false, sharing: false, camera: false };
 }
 
+// Hover previews are available only after the viewer has joined the same voice room.
+// No additional stream or media permissions are requested on hover.
+let vcSharePreview;
+function closeVcSharePreview() {
+  if (!vcSharePreview) return;
+  vcSharePreview.popup.remove();
+  vcSharePreview = undefined;
+}
+function openVcSharePreview(anchor, peerId, name, server, channel) {
+  closeVcSharePreview();
+  const popup = document.createElement("div");
+  popup.className = "vc-share-preview";
+  popup.setAttribute("role", "dialog");
+  popup.setAttribute("aria-label", `${name} yayın önizlemesi`);
+  const heading = document.createElement("strong");
+  heading.textContent = `${name} • YAYINDA`;
+  const frame = document.createElement("div");
+  frame.className = "vc-share-preview-frame";
+  const track = participantVideoTracks.get(peerId)?.screen;
+  const sameChannel = Boolean(voiceActive && currentServer?.id === server?.id && currentChannel?.id === channel?.id);
+  if (sameChannel && track?.readyState === "live") {
+    const video = document.createElement("video");
+    video.autoplay = true;
+    video.muted = true;
+    video.playsInline = true;
+    video.srcObject = new MediaStream([track]);
+    frame.append(video);
+    video.play().catch(() => {});
+  } else {
+    const placeholder = document.createElement("span");
+    placeholder.textContent = sameChannel ? "Yayın görüntüsü yükleniyor…" : "Önizleme için ses kanalına katıl";
+    frame.append(placeholder);
+  }
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "vc-share-preview-join";
+  button.textContent = sameChannel ? "Yayını Gör" : "Katıl";
+  button.addEventListener("click", async () => {
+    closeVcSharePreview();
+    if (!sameChannel) {
+      if (server && channel) await joinServerChannel(server, channel);
+      return;
+    }
+    const card = [...grid.querySelectorAll(".participant-card")].find(el => el.dataset.participant === peerId);
+    if (card) {
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      card.classList.add("vc-share-preview-highlight");
+      window.setTimeout(() => card.classList.remove("vc-share-preview-highlight"), 1600);
+    }
+  });
+  popup.append(heading, frame, button);
+  document.body.append(popup);
+  const bounds = anchor.getBoundingClientRect();
+  const width = popup.offsetWidth;
+  const height = popup.offsetHeight;
+  const left = Math.max(8, Math.min(window.innerWidth - width - 8, bounds.right + 10));
+  const top = Math.max(8, Math.min(window.innerHeight - height - 8, bounds.top));
+  popup.style.left = `${left}px`;
+  popup.style.top = `${top}px`;
+  vcSharePreview = { popup, anchor };
+  popup.addEventListener("mouseleave", () => window.setTimeout(() => {
+    if (vcSharePreview?.popup === popup && !anchor.matches(":hover") && !popup.matches(":hover")) closeVcSharePreview();
+  }, 180));
+}
+function attachVcSharePreview(badge, peerId, name, server, channel) {
+  badge.classList.add("vc-share-preview-trigger");
+  badge.tabIndex = 0;
+  const show = () => openVcSharePreview(badge, peerId, name, server, channel);
+  badge.addEventListener("mouseenter", show);
+  badge.addEventListener("focus", show);
+  badge.addEventListener("mouseleave", () => window.setTimeout(() => {
+    if (vcSharePreview?.anchor === badge && !badge.matches(":hover") && !vcSharePreview.popup.matches(":hover")) closeVcSharePreview();
+  }, 240));
+  badge.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); show(); }
+    if (event.key === "Escape") closeVcSharePreview();
+  });
+}
+document.addEventListener("pointerdown", event => {
+  if (vcSharePreview && !vcSharePreview.popup.contains(event.target) && !vcSharePreview.anchor.contains(event.target)) closeVcSharePreview();
+});
+document.addEventListener("keydown", event => { if (event.key === "Escape") closeVcSharePreview(); });
+
 function createParticipantIndicators(state) {
   const indicators = document.createElement("span");
   indicators.className = "participant-status-icons";
@@ -4518,7 +4610,12 @@ function renderParticipant(id, name, stream) {
   const participantName = document.createElement("span");
   participantName.textContent = name;
   const snapshotState = voiceParticipant && { microphoneMuted: voiceParticipant.microphoneMuted === true, soundMuted: voiceParticipant.soundMuted === true, sharing: false, camera: false };
-  nameLabel.replaceChildren(participantName, createParticipantIndicators(id === "self" ? getParticipantState(id) : (participantStates.get(id) || snapshotState || getParticipantState(id))));
+  const indicators = createParticipantIndicators(id === "self" ? getParticipantState(id) : (participantStates.get(id) || snapshotState || getParticipantState(id)));
+  nameLabel.replaceChildren(participantName, indicators);
+  if (id !== "self" && getParticipantState(id).sharing) {
+    const badge = indicators.querySelector(".participant-sharing-badge");
+    if (badge) attachVcSharePreview(badge, id, name, currentServer, currentChannel);
+  }
   const state = getParticipantState(id);
   const tracks = participantVideoTracks.get(id) || {};
   const screenVideoTrack = state.sharing ? tracks.screen : undefined;
