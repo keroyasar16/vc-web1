@@ -3556,7 +3556,11 @@ function showMemberContextMenu(target, x, y) {
     separator.setAttribute("role", "separator");
     menu.append(separator);
   };
-  const targetIsSelf = target.userId && target.userId === accountUser?.id;
+  const targetIsSelf = Boolean(
+    (target.userId && target.userId === accountUser?.id) ||
+    (target.clientId && target.clientId === clientId) ||
+    target.clientId === "self"
+  );
   const friend = friendData.friends.find((item) => item.id === target.userId);
   const hasFriendRequest = friendData.incomingRequests.some((request) => request.user.id === target.userId) ||
     friendData.outgoingRequests.some((request) => request.user.id === target.userId);
@@ -3565,8 +3569,26 @@ function showMemberContextMenu(target, x, y) {
   const server = target.server;
 
   if (!targetIsSelf && (target.userId || target.clientId)) {
-    const voiceId = serverVoiceParticipants.find((person) => person.id === target.userId)?.clientId || target.clientId;
-    if (voiceId && voiceId !== clientId) {
+    // The voice connection ID can be absent from the server's presence snapshot.
+    // Resolve against the actual local voice peer first, then the current server roster.
+    const matchingVoicePeople = serverVoiceParticipants.filter((person) =>
+      (!server || server.id === serverVoiceParticipantsServerId) &&
+      ((target.userId && person.id === target.userId) ||
+       (target.clientId && person.clientId === target.clientId))
+    );
+    const peerCandidates = [
+      target.clientId,
+      ...matchingVoicePeople.map((person) => person.clientId),
+    ].filter(Boolean);
+    // If the roster is incomplete, use the name only when it uniquely matches
+    // a live peer. This avoids changing the wrong person's volume.
+    if (!peerCandidates.some((id) => peers.has(id)) && target.username) {
+      const sameNamePeers = [...participantNames.entries()].filter(([id, name]) =>
+        id !== clientId && name === target.username && peers.has(id));
+      if (sameNamePeers.length === 1) peerCandidates.push(sameNamePeers[0][0]);
+    }
+    const voiceId = peerCandidates.find((id) => id !== clientId && id !== "self" && peers.has(id));
+    if (voiceActive && voiceId && !targetIsSelf) {
       const volumeRow = document.createElement("div");
       volumeRow.className = "vc-member-volume";
       const label = document.createElement("label");
