@@ -335,6 +335,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         nickname: serverRecord.nicknames?.[user.id] || "",
         avatar: user.avatar || "",
         isOnline: isUserOnline(user.id),
+        isOwner: user.id === serverRecord?.ownerId,
         roleIds: serverRecord?.memberRoles?.[user.id] || [],
         roles: (serverRecord?.roles || []).filter((role) =>
           !role.isDefault && (serverRecord?.memberRoles?.[user.id] || []).includes(role.id)
@@ -2648,6 +2649,8 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         "Content-Type": mimeTypes[path.extname(filePath)] || "application/octet-stream",
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer",
+        // Always revalidate so clients never run a stale app.js after an update.
+        "Cache-Control": "no-cache",
       });
       response.end(contents);
     });
