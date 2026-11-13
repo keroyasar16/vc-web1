@@ -3378,28 +3378,50 @@ function renderServerMembers() {
       onlineById.set(member.id, { ...member, isServerMember: true });
     }
   }
+  const ownerMember = serverMembers.find((member) => member.isOwner);
+  if (ownerMember) onlineById.delete(ownerMember.id);
   const onlineMembers = Array.from(onlineById.values())
     .sort((left, right) => (left.nickname || left.username).localeCompare(right.nickname || right.username, "tr"));
-  const hasCustomRole = (member) => (Array.isArray(member.roles) && member.roles.some((role) => !role.isDefault)) ||
-    (Array.isArray(member.roleIds) && member.roleIds.some((id) => serverRoleData.roles.some((role) => role.id === id && !role.isDefault)));
-  const roleOnlineMembers = onlineMembers.filter(hasCustomRole);
-  const regularOnlineMembers = onlineMembers.filter((member) => !hasCustomRole(member));
-  const roleSection = document.querySelector("#role-online-section");
-  roleSection.hidden = roleOnlineMembers.length === 0;
-  document.querySelector("#role-online-count").textContent = String(roleOnlineMembers.length);
-  const offlineMembers = serverMembers.filter((member) => !member.isOnline);
-  document.querySelector("#server-member-count").textContent = String(onlineMembers.length + offlineMembers.length);
+  // Group online members by their top custom role (first in the server's role order).
+  const roleOrder = new Map(serverRoleData.roles.map((role, index) => [role.id, index]));
+  const customRolesOf = (member) => {
+    const fromObjects = Array.isArray(member.roles) ? member.roles.filter((role) => !role.isDefault) : [];
+    const known = new Map(serverRoleData.roles.map((role) => [role.id, role]));
+    const fromIds = Array.isArray(member.roleIds)
+      ? member.roleIds.map((id) => known.get(id)).filter((role) => role && !role.isDefault)
+      : [];
+    const merged = new Map();
+    for (const role of [...fromObjects, ...fromIds]) merged.set(role.id, { ...known.get(role.id), ...role });
+    return Array.from(merged.values())
+      .sort((left, right) => (roleOrder.get(left.id) ?? 999) - (roleOrder.get(right.id) ?? 999));
+  };
+  const roleGroups = new Map();
+  const regularOnlineMembers = [];
+  for (const member of onlineMembers) {
+    const [topRole] = customRolesOf(member);
+    if (!topRole) {
+      regularOnlineMembers.push(member);
+      continue;
+    }
+    if (!roleGroups.has(topRole.id)) roleGroups.set(topRole.id, { role: topRole, members: [] });
+    roleGroups.get(topRole.id).members.push(member);
+  }
+  const sortedRoleGroups = Array.from(roleGroups.values())
+    .sort((left, right) => (roleOrder.get(left.role.id) ?? 999) - (roleOrder.get(right.role.id) ?? 999));
+  const offlineMembers = serverMembers.filter((member) => !member.isOnline && !member.isOwner);
+  document.querySelector("#server-member-count").textContent =
+    String(onlineMembers.length + offlineMembers.length + (ownerMember ? 1 : 0));
   document.querySelector("#online-member-count").textContent = String(regularOnlineMembers.length);
   document.querySelector("#offline-member-count").textContent = String(offlineMembers.length);
 
-  for (const [members, list] of [[roleOnlineMembers, document.querySelector("#role-online-members")], [regularOnlineMembers, onlineMembersList], [offlineMembers, offlineMembersList]]) {
+  const fillMemberList = (members, list, emptyText) => {
     list.replaceChildren();
     if (members.length === 0) {
       const empty = document.createElement("p");
       empty.className = "server-members-empty";
-      empty.textContent = members === offlineMembers ? "Çevrimdışı üye yok" : "Çevrimiçi üye yok";
+      empty.textContent = emptyText;
       list.append(empty);
-      continue;
+      return;
     }
     for (const member of members) {
       const item = document.createElement("div");
@@ -3418,11 +3440,42 @@ function renderServerMembers() {
       name.className = "server-member-name";
       name.textContent = member.nickname || member.username;
       item.append(avatar, name);
-      const customRoles = Array.isArray(member.roles) ? member.roles.filter((role) => !role.isDefault) : [];
-      if (customRoles[0]?.color && /^#[0-9a-f]{3,8}$/i.test(customRoles[0].color)) name.style.color = customRoles[0].color;
+      const [topRole] = customRolesOf(member);
+      if (topRole?.color && /^#[0-9a-f]{3,8}$/i.test(topRole.color)) name.style.color = topRole.color;
       list.append(item);
     }
+  };
+
+  const ownerSection = document.querySelector("#owner-section");
+  ownerSection.hidden = !ownerMember;
+  if (ownerMember) {
+    const ownerOnline = onlineById.has(ownerMember.id) || globallyOnlineUsers.some((user) => user.id === ownerMember.id) ||
+      ownerMember.isOnline === true;
+    fillMemberList([{ ...ownerMember, isOnline: ownerOnline }], document.querySelector("#owner-members"), "");
+    document.querySelector("#owner-members .server-member")?.classList.toggle("is-offline", !ownerOnline);
   }
+
+  const roleGroupsContainer = document.querySelector("#role-online-groups");
+  roleGroupsContainer.replaceChildren();
+  for (const { role, members } of sortedRoleGroups) {
+    const section = document.createElement("section");
+    section.className = "server-member-group role-online-group";
+    const heading = document.createElement("h3");
+    const roleName = document.createElement("span");
+    roleName.className = "role-group-name";
+    roleName.textContent = `${role.name} — ÇEVRİMİÇİ`;
+    if (role.color && /^#[0-9a-f]{3,8}$/i.test(role.color)) roleName.style.color = role.color;
+    const count = document.createElement("span");
+    count.textContent = String(members.length);
+    heading.append(roleName, count);
+    const list = document.createElement("div");
+    list.className = "server-member-list";
+    section.append(heading, list);
+    roleGroupsContainer.append(section);
+    fillMemberList(members, list, "Çevrimiçi üye yok");
+  }
+  fillMemberList(regularOnlineMembers, onlineMembersList, "Çevrimiçi üye yok");
+  fillMemberList(offlineMembers, offlineMembersList, "Çevrimdışı üye yok");
 }
 
 function closeMemberContextMenu() {

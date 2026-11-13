@@ -1714,7 +1714,8 @@ body {
 .vc-shortcut-row > span { flex: 1 1 180px; }
 .vc-shortcut-row kbd { padding: 6px 9px; background: #202127; border: 1px solid #484a54; border-radius: 5px; font-size: 12px; }
 .vc-shortcut-row button { width: auto; }
-#role-online-section h3 { color: #a5b4fc; }
+.role-online-group h3 { color: #a5b4fc; }
+.role-online-group h3 .role-group-name { margin-left: 0; font-size: inherit; font-weight: inherit; }
 
 /* VC Desktop client download */
 .vc-client-actions { display:flex; align-items:center; justify-content:flex-end; gap:12px; min-width:0; }
@@ -1776,3 +1777,6 @@ body {
 .vc-share-preview-join { background: #5865f2; color: #fff; border: 0; border-radius: 7px; padding: 9px 12px; cursor: pointer; font-weight: 700; }
 .vc-share-preview-join:hover { background: #4752c4; }
 .vc-share-preview-highlight { outline: 2px solid #5865f2; outline-offset: 2px; }
+#role-online-groups { display: contents; }
+#owner-section h3 { color: #f0b232; }
+#owner-members .server-member.is-offline { opacity: .55; }
