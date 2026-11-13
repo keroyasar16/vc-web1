@@ -4398,7 +4398,8 @@ function createPeerConnection(peerId, name, shouldOffer) {
   connection.addEventListener("icecandidate", ({ candidate }) => {
     if (candidate) sendSignal(peerId, { type: "candidate", candidate });
   });
-  connection.addEventListener("track", ({ track, streams }) => {
+  connection.addEventListener("track", (event) => {
+    const { track, streams } = event;
     const stream = streams[0] || new MediaStream([track]);
     if (track.kind === "audio") {
       startSpeakingMonitor(peerId, stream);
