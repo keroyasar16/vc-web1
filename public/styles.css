@@ -1142,7 +1142,7 @@ body {
 .participant-sharing-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 5px; border-radius: 9px; background: #da373c; color: #fff; font-size: 8px; font-weight: 700; line-height: 1; }
 .participant-sharing-badge svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .account-call-controls { grid-column: 1 / -1; display: none; align-items: center; justify-content: center; gap: 6px; }
-.dashboard-account.has-voice .account-call-controls { display: flex; }
+.dashboard-account.has-voice .account-call-controls, .call-bar .account-call-controls { display: flex; }
 .account-control-button { width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 1px solid #555861; border-radius: 8px; background: #383a40; color: #f2f3f5; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
 .account-control-button:hover:not(:disabled) { border-color: #8b8d95; background: #4a4c53; color: #fff; }
 .account-control-button:disabled { opacity: .42; cursor: not-allowed; }

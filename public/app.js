@@ -4332,6 +4332,8 @@ function connectToRoom() {
       participantNames.set(message.peer.id, message.peer.name);
       participantStates.set(message.peer.id, participantStates.get(message.peer.id) || { microphoneMuted: false, soundMuted: false, sharing: false, camera: false });
       createPeerConnection(message.peer.id, message.peer.name, true);
+      // Late joiners do not receive earlier voice-state packets; resend ours (sharing/camera/mute).
+      publishVoiceState();
       updateParticipantCount();
       playVcCue("otherJoin");
       showToast(`${message.peer.name} odaya katıldı`);
@@ -4374,6 +4376,25 @@ function connectToRoom() {
   });
 }
 
+// Video m-lines are negotiated in a fixed order: screen first, camera second.
+function orderedVideoTransceivers(connection) {
+  return connection.getTransceivers()
+    .filter((transceiver) => transceiver.mid !== null && transceiver.receiver.track.kind === "video")
+    .sort((a, b) => Number(a.mid) - Number(b.mid));
+}
+
+function remoteVideoKind(connection, transceiver) {
+  const index = orderedVideoTransceivers(connection).indexOf(transceiver);
+  return index === 0 ? "screen" : index === 1 ? "camera" : undefined;
+}
+
+function attachLocalVideoTracks(peer) {
+  if (peer.screenTransceiver && screenTrack) peer.screenTransceiver.sender.replaceTrack(screenTrack).catch((error) =>
+    console.warn("Ekran paylaşımı katılımcıya aktarılamadı:", error));
+  if (peer.cameraTransceiver && cameraTrack) peer.cameraTransceiver.sender.replaceTrack(cameraTrack).catch((error) =>
+    console.warn("Kamera katılımcıya aktarılamadı:", error));
+}
+
 function createPeerConnection(peerId, name, shouldOffer) {
   if (peers.has(peerId)) return peers.get(peerId).connection;
   const connection = new RTCPeerConnection({
@@ -4381,8 +4402,11 @@ function createPeerConnection(peerId, name, shouldOffer) {
   });
   const audioTrack = localStream.getAudioTracks()[0];
   if (audioTrack) connection.addTrack(audioTrack, localStream);
-  const screenTransceiver = connection.addTransceiver("video", { direction: "sendrecv" });
-  const cameraTransceiver = connection.addTransceiver("video", { direction: "sendrecv" });
+  // Only the offering side creates the video m-lines. The answering side adopts the
+  // transceivers created by the remote offer (see handleSignal), because browsers do
+  // not reliably match pre-created transceivers to the incoming m-lines.
+  const screenTransceiver = shouldOffer ? connection.addTransceiver("video", { direction: "sendrecv" }) : undefined;
+  const cameraTransceiver = shouldOffer ? connection.addTransceiver("video", { direction: "sendrecv" }) : undefined;
   const peer = {
     connection,
     screenTransceiver,
@@ -4390,10 +4414,7 @@ function createPeerConnection(peerId, name, shouldOffer) {
     pendingCandidates: [],
   };
   peers.set(peerId, peer);
-  if (screenTrack) screenTransceiver.sender.replaceTrack(screenTrack).catch((error) =>
-    console.warn("Ekran paylaşımı yeni katılımcıya aktarılamadı:", error));
-  if (cameraTrack) cameraTransceiver.sender.replaceTrack(cameraTrack).catch((error) =>
-    console.warn("Kamera yeni katılımcıya aktarılamadı:", error));
+  attachLocalVideoTracks(peer);
 
   connection.addEventListener("icecandidate", ({ candidate }) => {
     if (candidate) sendSignal(peerId, { type: "candidate", candidate });
@@ -4406,12 +4427,8 @@ function createPeerConnection(peerId, name, shouldOffer) {
       renderParticipant(peerId, name, stream);
       return;
     }
-    // event.transceiver identifies the negotiated m-line more reliably than
-    // comparing receiver tracks (which can change during renegotiation).
-    const receiver = event.transceiver?.receiver;
-    const kind = event.transceiver === screenTransceiver || receiver === screenTransceiver.receiver
-      ? "screen" : event.transceiver === cameraTransceiver || receiver === cameraTransceiver.receiver
-        ? "camera" : undefined;
+    // The first negotiated video m-line carries the screen share, the second the camera.
+    const kind = remoteVideoKind(connection, event.transceiver);
     if (!kind) {
       console.warn("VC: eşleştirilemeyen uzak video track", peerId, event.transceiver?.mid);
       return;
@@ -4451,6 +4468,13 @@ async function handleSignal(peerId, data) {
   try {
     if (data.type === "offer") {
       await connection.setRemoteDescription(data.sdp);
+      const [screenTransceiver, cameraTransceiver] = orderedVideoTransceivers(connection);
+      for (const transceiver of [screenTransceiver, cameraTransceiver]) {
+        if (transceiver) transceiver.direction = "sendrecv";
+      }
+      peer.screenTransceiver = screenTransceiver;
+      peer.cameraTransceiver = cameraTransceiver;
+      attachLocalVideoTracks(peer);
       for (const candidate of peer.pendingCandidates.splice(0)) await connection.addIceCandidate(candidate);
       await connection.setLocalDescription(await connection.createAnswer());
       sendSignal(peerId, { type: "answer", sdp: connection.localDescription });
@@ -4890,7 +4914,7 @@ shareButton.addEventListener("click", async () => {
       return;
     }
     await Promise.all(Array.from(peers.values(), ({ screenTransceiver }) =>
-      screenTransceiver.sender.replaceTrack(screenTrack)));
+      screenTransceiver?.sender.replaceTrack(screenTrack)));
     screenTrack.addEventListener("ended", stopScreenShare, { once: true });
     participantVideoTracks.set("self", { ...(participantVideoTracks.get("self") || {}), screen: screenTrack });
     shareButton.classList.add("is-sharing");
@@ -4911,7 +4935,7 @@ function stopScreenShare() {
   screenTrack = undefined;
   track.stop();
   setParticipantVideoTrack("self", "screen", undefined);
-  Promise.all(Array.from(peers.values(), ({ screenTransceiver }) => screenTransceiver.sender.replaceTrack(null)))
+  Promise.all(Array.from(peers.values(), ({ screenTransceiver }) => screenTransceiver?.sender.replaceTrack(null)))
     .catch(() => showToast("Ekran paylaşımı durdurulurken bağlantı güncellenemedi."));
   shareButton.classList.remove("is-sharing");
   shareLabel.textContent = "Ekran paylaş";
@@ -4927,7 +4951,7 @@ cameraButton.addEventListener("click", async () => {
     cameraTrack = undefined;
     track.stop();
     await Promise.all(Array.from(peers.values(), ({ cameraTransceiver }) =>
-      cameraTransceiver.sender.replaceTrack(null)));
+      cameraTransceiver?.sender.replaceTrack(null)));
     setParticipantVideoTrack("self", "camera", undefined);
     cameraButton.classList.remove("is-sharing");
     cameraLabel.textContent = "Kamerayı aç";
@@ -4947,7 +4971,7 @@ cameraButton.addEventListener("click", async () => {
       throw new Error("Kamera video akışı başlatılamadı.");
     }
     await Promise.all(Array.from(peers.values(), ({ cameraTransceiver }) =>
-      cameraTransceiver.sender.replaceTrack(cameraTrack)));
+      cameraTransceiver?.sender.replaceTrack(cameraTrack)));
     cameraTrack.addEventListener("ended", () => {
       if (cameraTrack) cameraButton.click();
     }, { once: true });
