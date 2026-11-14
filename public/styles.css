@@ -1141,7 +1141,7 @@ body {
 .channel-participant.is-speaking .channel-participant-avatar { color: #fff; }
 .participant-sharing-badge { display: inline-flex; align-items: center; gap: 3px; padding: 2px 5px; border-radius: 9px; background: #da373c; color: #fff; font-size: 8px; font-weight: 700; line-height: 1; }
 .participant-sharing-badge svg { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.account-call-controls { grid-column: 1 / -1; display: none; align-items: center; justify-content: center; gap: 6px; }
+.account-call-controls { grid-column: 1 / -1; display: none; flex-wrap: wrap; min-width: 0; align-items: center; justify-content: center; gap: 6px; }
 .dashboard-account.has-voice .account-call-controls, .call-bar .account-call-controls { display: flex; }
 .account-control-button { width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 1px solid #555861; border-radius: 8px; background: #383a40; color: #f2f3f5; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
 .account-control-button:hover:not(:disabled) { border-color: #8b8d95; background: #4a4c53; color: #fff; }
@@ -1696,14 +1696,14 @@ body {
 @media(max-width:600px){.vc-announcement-widget{right:12px;bottom:12px}.vc-announcement-trigger{padding:9px 13px}.vc-announcement-dialog{padding:14px}}
 
 /* Floating compact announcement button (VC 4.0) */
-.vc-announcement-widget{right:14px;bottom:14px;max-width:none;touch-action:none;user-select:none}
+.vc-announcement-widget{right:14px;bottom:84px;max-width:none;touch-action:none;user-select:none}
 .vc-announcement-trigger{width:46px;height:46px;min-width:46px;min-height:46px;padding:0;justify-content:center;gap:0;position:relative;touch-action:none;cursor:grab;font-size:20px;border-radius:50%}
 .vc-announcement-trigger:active{cursor:grabbing}
 .vc-announcement-trigger-label{display:none}
 .vc-announcement-count{position:absolute;right:-6px;top:-6px;min-width:19px;font-size:10px;border:2px solid #183c32}
 .vc-announcement-preview{right:0;bottom:56px;touch-action:auto;user-select:text}
 .vc-announcement-widget.vc-announcement-dragging .vc-announcement-preview{display:none!important}
-@media(max-width:600px){.vc-announcement-widget{right:12px;bottom:12px}.vc-announcement-trigger{width:42px;height:42px;min-width:42px;min-height:42px;padding:0}}
+@media(max-width:600px){.vc-announcement-widget{right:12px;bottom:84px}.vc-announcement-trigger{width:42px;height:42px;min-width:42px;min-height:42px;padding:0}}
 
 /* VC: role grouping, per-user voice controls and configurable shortcuts */
 .vc-member-volume { padding: 9px; display: grid; gap: 8px; color: #e3e5e8; font-size: 12px; }
