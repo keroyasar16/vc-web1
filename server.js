@@ -105,6 +105,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
   const rooms = new Map();
   const chatRooms = new Map();
   const directMessageRooms = new Map();
+  const dmCalls = new Map();
   const serverConnections = new Map();
   const userConnections = new Map();
   const sessions = new Map();
@@ -495,6 +496,46 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         connection.send(serialized);
       }
     }
+  }
+
+  // ---- DM aramaları: oda boşalana kadar DM içinde "aramaya katıl" için durum tutulur ----
+  function dmCallParticipants(call) {
+    const seen = new Set();
+    const participants = [];
+    for (const peer of rooms.get(`call-${call.callId}`)?.values() || []) {
+      if (!peer.callUserId || seen.has(peer.callUserId)) continue;
+      const user = store.users.find((item) => item.id === peer.callUserId);
+      if (!user) continue;
+      seen.add(user.id);
+      participants.push({ userId: user.id, username: user.username, avatar: typeof user.avatar === "string" ? user.avatar : "" });
+    }
+    return participants;
+  }
+
+  function dmCallStatePayload(call) {
+    return {
+      type: "dm-call-state",
+      callId: call.callId,
+      conversationId: call.conversationId,
+      video: call.video,
+      participants: dmCallParticipants(call),
+    };
+  }
+
+  function publishDmCall(call) {
+    const payload = dmCallStatePayload(call);
+    if (payload.participants.length === 0 && !rooms.get(`call-${call.callId}`)?.size) dmCalls.delete(call.callId);
+    for (const memberId of call.memberIds) sendToPresence(memberId, payload);
+  }
+
+  function registerDmCall(callId, conversationId, memberIds, video) {
+    if (dmCalls.has(callId)) return;
+    dmCalls.set(callId, { callId, conversationId, memberIds: new Set(memberIds), video });
+    // Kimse katılmazsa kayıt sızmasın.
+    setTimeout(() => {
+      const call = dmCalls.get(callId);
+      if (call && !rooms.get(`call-${callId}`)?.size) dmCalls.delete(callId);
+    }, 90_000).unref?.();
   }
 
   function broadcastGroupUpdate(group, extraUserIds = []) {
@@ -2917,6 +2958,19 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       }
 
       if (message?.type === "presence-auth") {
+        if (!serverId && roomId.startsWith("call-")) {
+          const call = dmCalls.get(roomId.slice(5));
+          const callUser = getUserFromToken(message.token);
+          if (call && callUser && call.memberIds.has(callUser.id) && !webSocket.callUserId) {
+            // Aynı kullanıcının eski bağlantısı kalmasın (yeniden bağlanma).
+            for (const other of room.values()) {
+              if (other !== webSocket && other.callUserId === callUser.id) other.terminate();
+            }
+            webSocket.callUserId = callUser.id;
+            publishDmCall(call);
+          }
+          return;
+        }
         const user = getUserFromToken(message.token);
         if (serverId && user && !webSocket.presenceUserId) {
           webSocket.sessionTokenHash = createHash("sha256").update(message.token).digest("hex");
@@ -2998,6 +3052,10 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         }
       }
       if (room.size === 0) rooms.delete(roomId);
+      if (webSocket.callUserId) {
+        const call = dmCalls.get(roomId.slice(5));
+        if (call) publishDmCall(call);
+      }
     });
   });
 
@@ -3276,6 +3334,11 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         webSocket.send(JSON.stringify({ type: "presence-ready" }));
         setConnectionUser(webSocket, user.id);
         webSocket.send(JSON.stringify({ type: "online-users", users: getOnlineUsers() }));
+        for (const call of dmCalls.values()) {
+          if (!call.memberIds.has(user.id)) continue;
+          const payload = dmCallStatePayload(call);
+          if (payload.participants.length) webSocket.send(JSON.stringify(payload));
+        }
         return;
       }
       const userId = webSocket.presenceUserId;
@@ -3317,6 +3380,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
             webSocket.send(JSON.stringify({ type: "call-invite-result", callId: message.callId, delivered: false }));
             return;
           }
+          registerDmCall(message.callId, group.id, group.memberIds, video);
           let delivered = false;
           for (const memberId of group.memberIds) {
             if (memberId === userId) continue;
@@ -3344,6 +3408,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
           webSocket.send(JSON.stringify({ type: "call-invite-result", callId: message.callId, delivered: false }));
           return;
         }
+        registerDmCall(message.callId, [userId, message.toUserId].sort().join(":"), [userId, message.toUserId], video);
         const targetConnections = Array.from(userConnections.get(message.toUserId) || [])
           .filter((connection) => connection.presenceKind === "presence" && connection.readyState === WebSocket.OPEN);
         for (const connection of targetConnections) {
