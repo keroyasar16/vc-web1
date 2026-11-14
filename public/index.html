@@ -8,8 +8,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=owner-section-20261114">
-    <script src="/app.js?v=owner-section-20261114" defer></script>
+    <link rel="stylesheet" href="/styles.css?v=audio-settings-20261114">
+    <script src="/app.js?v=audio-settings-20261114" defer></script>
     <script src="/shortcuts.js?v=vc-shortcuts-20261112-2" defer></script>
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2358170846913733"
      crossorigin="anonymous"></script>
@@ -477,12 +477,29 @@
                 <input id="audio-output-volume" type="range" min="0" max="100" value="100">
               </div>
             </div>
+            <h3 class="settings-section-title">Ses işleme</h3>
+            <label class="settings-checkbox"><input id="audio-noise-suppression" type="checkbox" checked><span>Gürültü azaltıcı <small>Klavye, fan ve arka plan gürültüsünü bastırır.</small></span></label>
+            <label class="settings-checkbox"><input id="audio-echo-cancellation" type="checkbox" checked><span>Yankı engelleme <small>Hoparlörden gelen sesin mikrofona karışmasını önler.</small></span></label>
+            <h3 class="settings-section-title">Giriş modu</h3>
+            <label class="settings-checkbox"><input id="audio-push-to-talk" type="checkbox"><span>Bas-konuş <small>Mikrofon yalnızca atadığın tuşa basılı tutarken açılır.</small></span></label>
+            <div id="audio-ptt-row" class="audio-ptt-row" hidden>
+              <kbd id="audio-ptt-key" class="vc-shortcut-key">Tuş Atanmamış</kbd>
+              <button id="audio-ptt-assign" class="settings-secondary-button" type="button">Tuş Ata</button>
+            </div>
+            <div id="audio-sensitivity-block">
+              <label class="settings-checkbox"><input id="audio-auto-sensitivity" type="checkbox" checked><span>Giriş duyarlılığını otomatik ayarla <small>Ortam gürültüsüne göre eşik kendiliğinden belirlenir.</small></span></label>
+              <label for="audio-sensitivity">Giriş duyarlılığı <output id="audio-sensitivity-value">70%</output></label>
+              <input id="audio-sensitivity" type="range" min="0" max="100" value="70">
+              <p class="settings-note">Sağa kaydırdıkça daha kısık sesler de iletilir. Aşağıdaki testte çubuktaki işaret eşiği gösterir.</p>
+            </div>
             <div class="audio-test-controls">
               <button id="microphone-test-button" class="settings-secondary-button" type="button">Mikrofon Testi</button>
               <div class="audio-level-meter" role="meter" aria-label="Mikrofon seviyesi" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
                 <span id="audio-input-meter"></span>
+                <i id="audio-threshold-marker" aria-hidden="true"></i>
               </div>
             </div>
+            <label class="settings-checkbox"><input id="audio-test-monitor" type="checkbox" checked><span>Test sırasında kendi sesimi duy <small>Yankı olmaması için kulaklık kullanman önerilir.</small></span></label>
             <button id="speaker-test-button" class="settings-secondary-button" type="button">Hoparlör Testi</button>
             <p class="settings-note">Ses cihazı seçimleri bu tarayıcıda saklanır. Mikrofon izni için HTTPS veya localhost gerekir.</p>
           </section>
