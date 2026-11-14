@@ -111,6 +111,8 @@ let notificationAudioContext;
 let serverRoleData = { roles: [], members: [] };
 let editingServerRole;
 let channelPermissionData;
+// Değiştirilmiş ama henüz kaydedilmemiş roller (izin düzenleme penceresi).
+let channelPermissionDirty = new Set();
 const pendingCalls = new Map();
 let authToken = localStorage.getItem("oda.authToken");
 let authMode = "login";
@@ -2809,6 +2811,7 @@ async function openRenameDialog(server, channel) {
   deleteChannelButton.hidden = !isChannel || !canEditChannel;
   renameDialog.classList.toggle("is-channel-editor", isChannel);
   channelPermissionData = undefined;
+  channelPermissionDirty = new Set();
   if (canEditPermissions) {
     try {
       channelPermissionData = await apiRequest(`/api/servers/${server.id}/channels/${channel.id}/permissions`);
@@ -2882,6 +2885,7 @@ function renderChannelPermissions() {
           if (!channelPermissionData.overwrites[roleId]) channelPermissionData.overwrites[roleId] = {};
           if (value === "inherit") delete channelPermissionData.overwrites[roleId][permissionId];
           else channelPermissionData.overwrites[roleId][permissionId] = value;
+          channelPermissionDirty.add(roleId);
           renderChannelPermissions();
         });
         controls.append(button);
@@ -2893,25 +2897,36 @@ function renderChannelPermissions() {
 }
 
 document.querySelector("#channel-permission-role").addEventListener("change", renderChannelPermissions);
+// Değiştirilen tüm rollerin izinlerini sunucuya kaydeder. Bir şey kaydedildiyse true döner.
+async function saveChannelPermissionEdits(server, channel) {
+  if (!channelPermissionData || channelPermissionDirty.size === 0) return false;
+  // Yanıt overwrites'ı tümden değiştireceği için istekler önce yerel veriden hazırlanır.
+  const payloads = [...channelPermissionDirty].map((roleId) => ({
+    roleId,
+    overrides: Object.fromEntries(
+      Object.keys(channelPermissionData.permissions).map((permission) => [
+        permission,
+        channelPermissionData.overwrites[roleId]?.[permission] || "inherit",
+      ]),
+    ),
+  }));
+  let last;
+  for (const body of payloads) {
+    last = await apiRequest(`/api/servers/${server.id}/channels/${channel.id}/permissions`, { method: "PATCH", body });
+    channelPermissionDirty.delete(body.roleId);
+  }
+  if (last) channelPermissionData.overwrites = last.overwrites;
+  return true;
+}
+
 document.querySelector("#save-channel-permissions").addEventListener("click", async (event) => {
   if (!pendingRename?.channel || !channelPermissionData) return;
   const button = event.currentTarget;
   button.disabled = true;
-  const roleId = document.querySelector("#channel-permission-role").value;
   try {
-    const response = await apiRequest(
-      `/api/servers/${pendingRename.server.id}/channels/${pendingRename.channel.id}/permissions`,
-      {
-        method: "PATCH",
-        body: { roleId, overrides: Object.fromEntries(
-          Object.keys(channelPermissionData.permissions).map((permission) => [
-            permission,
-            channelPermissionData.overwrites[roleId]?.[permission] || "inherit",
-          ]),
-        ) },
-      },
-    );
-    channelPermissionData.overwrites = response.overwrites;
+    channelPermissionDirty.add(document.querySelector("#channel-permission-role").value);
+    await saveChannelPermissionEdits(pendingRename.server, pendingRename.channel);
+    renderChannelPermissions();
     renderServers();
     showToast("Kanal izinleri kaydedildi");
   } catch (error) {
@@ -2979,9 +2994,11 @@ renameForm.addEventListener("submit", async (event) => {
     servers.set(result.server.id, result.server);
     if (currentServer?.id === result.server.id) currentServer = result.server;
     renderServers();
+    // "Kaydet" ile birlikte değiştirilmiş kanal izinleri de kaydedilsin.
+    const permissionsSaved = channel ? await saveChannelPermissionEdits(server, channel) : false;
     renameDialog.close();
     pendingRename = undefined;
-    showToast(channel ? "Oda adı güncellendi" : "Sunucu adı güncellendi");
+    showToast(permissionsSaved ? "Oda ayarları ve izinler kaydedildi" : channel ? "Oda adı güncellendi" : "Sunucu adı güncellendi");
   } catch (error) {
     showToast(error.message);
   } finally {
