@@ -1179,6 +1179,23 @@ function connectPresence() {
       if (message.serverId === selectedServer?.id) showToast(message.message);
     } else if (message.type === "group-updated") {
       refreshDirectMessageGroups();
+    } else if (message.type === "dm-call-state") {
+      if (Array.isArray(message.participants) && message.participants.length > 0) {
+        dmCallStates.set(message.conversationId, {
+          callId: message.callId,
+          video: message.video === true,
+          participants: message.participants,
+        });
+      } else {
+        dmCallStates.delete(message.conversationId);
+      }
+      renderDmCallBanner();
+      if (voiceActive && dmCall?.conversationId === message.conversationId) {
+        for (const [peerId, peerName] of participantNames) {
+          if (peerId === "self" || !document.querySelector(`[data-participant="${CSS.escape(peerId)}"]`)) continue;
+          renderParticipant(peerId, peerName, participantStreams.get(peerId));
+        }
+      }
     } else if (message.type === "call-invite") {
       if (!message.groupId && !friendData.friends.some((friend) => friend.id === message.fromUserId)) return;
       const isVideo = message.video === true;
@@ -1243,6 +1260,8 @@ function connectPresence() {
 
 function closePresenceConnection() {
   window.clearTimeout(presenceReconnectTimer);
+  dmCallStates.clear();
+  renderDmCallBanner();
   for (const pendingCall of pendingCalls.values()) window.clearTimeout(pendingCall.timer);
   pendingCalls.clear();
   presenceReady = false;
@@ -1324,6 +1343,59 @@ async function joinDirectCallRoom(callId, { video = false, target } = {}) {
 // ---- DM içi arama paneli ----
 const dmCallSlot = document.querySelector("#dm-call-slot");
 let dmCall;
+// Sunucudan gelen aktif DM aramaları: conversationId -> { callId, video, participants }
+const dmCallStates = new Map();
+
+function dmCallUserByName(name) {
+  const state = dmCall && dmCallStates.get(dmCall.conversationId);
+  const fromState = state?.participants.find((item) => item.username === name);
+  if (fromState) return { id: fromState.userId, username: fromState.username, avatar: fromState.avatar };
+  const target = dmCall?.target;
+  const pool = [target && !target.isGroup ? target : null, ...(target?.members || []), ...friendData.friends, ...directMessageUsers]
+    .filter(Boolean);
+  return pool.find((item) => item.username === name);
+}
+
+function renderDmCallBanner() {
+  const banner = document.querySelector("#dm-call-banner");
+  if (!banner) return;
+  const conversationId = activeDirectMessage && accountUser ? dmConversationId(activeDirectMessage) : "";
+  const state = conversationId ? dmCallStates.get(conversationId) : undefined;
+  const others = state ? state.participants.filter((item) => item.userId !== accountUser.id) : [];
+  const inThisCall = voiceActive && dmCall?.conversationId === conversationId;
+  if (!state || others.length === 0 || dmView.hidden || inThisCall) {
+    banner.hidden = true;
+    banner.replaceChildren();
+    return;
+  }
+  const avatars = document.createElement("div");
+  avatars.className = "dm-call-banner-avatars";
+  for (const person of others) {
+    const avatar = document.createElement("span");
+    avatar.className = "friend-avatar is-online";
+    setAvatar(avatar, { username: person.username, avatar: person.avatar });
+    avatar.title = person.username;
+    avatars.append(avatar);
+  }
+  const text = document.createElement("div");
+  text.className = "dm-call-banner-text";
+  const title = document.createElement("strong");
+  title.textContent = state.video ? "Görüntülü arama sürüyor" : "Sesli arama sürüyor";
+  const names = document.createElement("span");
+  names.textContent = `${others.map((item) => item.username).join(", ")} aramada`;
+  text.append(title, names);
+  const join = document.createElement("button");
+  join.type = "button";
+  join.className = "dm-call-banner-join";
+  join.textContent = "Aramaya katıl";
+  join.addEventListener("click", () => {
+    if (!activeDirectMessage) return;
+    joinDirectCallRoom(state.callId, { video: false, target: activeDirectMessage })
+      .catch((error) => showToast(error.message));
+  });
+  banner.replaceChildren(avatars, text, join);
+  banner.hidden = false;
+}
 const HANGUP_ICON = '<path d="M3.5 14.5c4.7-4 12.3-4 17 0l-1.6 2.9-3.4-.9v-2.4a10 10 0 0 0-6 0v2.4l-3.4.9z"></path>';
 
 function setDmCallLeaveStyle(active) {
@@ -1340,6 +1412,7 @@ function setDmCallLeaveStyle(active) {
 }
 
 function syncDmCallPanel() {
+  renderDmCallBanner();
   if (!dmCall || !voiceActive) return;
   const controls = document.querySelector(".account-call-controls");
   const showPanel = !dmView.hidden && activeDirectMessage &&
@@ -4912,7 +4985,7 @@ async function enterVoiceRoom({ name = accountUser?.username || joinForm.element
   landing.hidden = true;
   roomInWorkspace = Boolean(server) || Boolean(dmConversation);
   if (dmConversation) {
-    dmCall = { conversationId: dmConversation };
+    dmCall = { conversationId: dmConversation, target: activeDirectMessage };
     dashboard.hidden = false;
     chatView.hidden = true;
     topbar.hidden = true;
@@ -4971,7 +5044,7 @@ function connectToRoom() {
   }
   socket = new WebSocket(`${protocol}//${location.host}/signal?${parameters}`);
   socket.addEventListener("open", () => {
-    if (authToken && currentServer) {
+    if (authToken && (currentServer || String(currentRoom || "").startsWith("call-"))) {
       socket.send(JSON.stringify({ type: "presence-auth", token: authToken }));
     }
     publishVoiceState();
@@ -5536,7 +5609,8 @@ function renderParticipant(id, name, stream) {
   card.classList.toggle("is-ignored", ignoredUserIds.has(voiceParticipant?.id || id));
   const participantAvatar = card.querySelector(".participant-avatar");
   const participantUser = id === "self" ? accountUser :
-    (voiceParticipant?.avatar ? voiceParticipant : serverMembers.find((member) => member.id === voiceParticipant?.id));
+    (voiceParticipant?.avatar ? voiceParticipant : serverMembers.find((member) => member.id === voiceParticipant?.id)) ||
+    (dmCall ? dmCallUserByName(name) : undefined);
   setAvatar(participantAvatar, participantUser || { username: name });
   const nameLabel = card.querySelector(".participant-name");
   const participantName = document.createElement("span");
@@ -5993,6 +6067,7 @@ function leaveRoom() {
   roomView.classList.remove("is-dm-call");
   dmCallSlot.hidden = true;
   setDmCallLeaveStyle(false);
+  renderDmCallBanner();
   roomInWorkspace = false;
   joinButton.disabled = false;
   joinButtonLabel.textContent = roomCodeInput.value.trim() ? "Odaya katıl" : "Yeni oda oluştur";
