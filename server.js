@@ -3160,8 +3160,8 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         const user = getUserFromToken(message.token);
         if (user?.servers.includes(serverId) && webSocket.presenceUserId !== user.id) {
           webSocket.sessionTokenHash = createHash("sha256").update(message.token).digest("hex");
-          if (channel && (!hasChannelPermission(serverRecord, channel, user.id, "view_channel") ||
-            !hasChannelPermission(serverRecord, channel, user.id, "send_messages"))) {
+          // Bağlanmak için yalnızca görüntüleme izni gerekir; "Mesaj Gönder" izni mesaj atılırken ayrıca denetlenir.
+          if (channel && !hasChannelPermission(serverRecord, channel, user.id, "view_channel")) {
             webSocket.close(1008, "Bu kanalı görüntüleme yetkin yok");
             return;
           }

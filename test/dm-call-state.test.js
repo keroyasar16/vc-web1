@@ -152,3 +152,31 @@ test("hata bildirimi: giriş şart, doğrulama, panelin şikâyetler listesinde 
   }
   assert.equal((await app.api("/api/bug-reports", { method: "POST", token: alice.token, body: { reason: "altıncı bildirim burada" } })).status, 429);
 });
+
+test("kanal izni: görüntüleme açık, mesaj gönderme kapalıysa kanal açılır ama mesaj atılamaz", async (t) => {
+  const app = await startApp();
+  const sockets = [];
+  t.after(() => { sockets.forEach((socket) => socket.terminate()); app.server.close(); });
+  const owner = await app.register("owner");
+  const member = await app.register("member");
+  const created = await app.api("/api/servers", { method: "POST", token: owner.token, body: { name: "Deneme Sunucu" } });
+  assert.equal(created.status, 201);
+  const serverRecord = created.data.server;
+  const channelResult = await app.api(`/api/servers/${serverRecord.id}/channels`, { method: "POST", token: owner.token, body: { name: "deneme", type: "text" } });
+  assert.equal(channelResult.status, 201);
+  const channel = channelResult.data.server.channels.find((item) => item.name === "deneme");
+  assert.equal((await app.api("/api/servers/join", { method: "POST", token: member.token, body: { inviteCode: serverRecord.inviteCode } })).status, 200);
+
+  // @everyone: kanalı görüntüle = izin ver, mesaj gönder = reddet
+  const overrides = { view_channel: "allow", send_messages: "deny", manage_channel: "inherit", manage_permissions: "inherit", connect: "inherit", create_invite: "inherit" };
+  const saved = await app.api(`/api/servers/${serverRecord.id}/channels/${channel.id}/permissions`, { method: "PATCH", token: owner.token, body: { roleId: "everyone", overrides } });
+  assert.equal(saved.status, 200);
+
+  const chat = await app.open(`/chat?server=${serverRecord.id}&channel=${channel.id}&name=member&invite=${serverRecord.inviteCode}`, member.token);
+  sockets.push(chat);
+  const history = await app.next(chat, "chat-history");
+  assert.ok(Array.isArray(history.messages));
+  chat.send(JSON.stringify({ type: "chat-message", text: "merhaba" }));
+  const rejection = await app.next(chat, "chat-error");
+  assert.match(rejection.message, /mesaj gönderme yetkin yok/);
+});
