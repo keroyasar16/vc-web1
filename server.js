@@ -1178,6 +1178,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         .map((item) => ({
           id: item.id,
           username: item.username,
+          avatar: typeof item.avatar === "string" ? item.avatar : "",
           isOnline: isUserOnline(item.id),
           isFriend: areFriends(user.id, item.id),
           canMessage: canDirectMessage(user.id, item.id),
