@@ -857,12 +857,12 @@ function attachMessageActions(article, message, kind) {
       button.addEventListener("click", () => { closeVcMessageMenu(); fn(); });
       menu.append(button);
     };
-    if (own) action("✎", "Düzenle", () => {
+    if (own) action("✎", "Düzenle", async () => {
       const current = messageState[kind].get(message.id);
-      const value = prompt("Mesajı düzenle:", current?.text || "");
+      const value = await vcPrompt("Yeni mesaj metnini yaz.", { title: "Mesajı düzenle", value: current?.text || "", multiline: true, confirmText: "Kaydet" });
       if (value !== null && value.trim()) send("message-edit", { text: value.trim() });
     });
-    action("▤", "Sil", () => { if (confirm("Bu mesaj silinsin mi?")) send("message-delete"); }, true);
+    action("▤", "Sil", async () => { if (await vcConfirm("Bu mesaj kalıcı olarak silinecek.", { title: "Mesaj silinsin mi?", confirmText: "Sil", tone: "danger" })) send("message-delete"); }, true);
     action("📌", messageState[kind].get(message.id)?.pinnedAt ? "Sabitlemeyi kaldır" : "Başa tuttur", () => send("message-pin"));
     document.body.append(menu);
     const rect = trigger.getBoundingClientRect();
@@ -1097,16 +1097,20 @@ function connectPresence() {
       if (message.serverId === selectedServer?.id) showToast(message.message);
     } else if (message.type === "call-invite") {
       if (!friendData.friends.some((friend) => friend.id === message.fromUserId)) return;
-      const accepted = window.confirm(`${message.fromName} seninle sesli arama başlatmak istiyor. Katılmak ister misin?`);
-      if (connection.readyState === WebSocket.OPEN) {
-        connection.send(JSON.stringify({
-          type: "call-response",
-          toUserId: message.fromUserId,
-          callId: message.callId,
-          accepted,
-        }));
-      }
-      if (accepted) joinDirectCallRoom(message.callId);
+      vcConfirm(`${message.fromName} seninle sesli arama başlatmak istiyor. Katılmak ister misin?`, {
+        title: "Gelen sesli arama", eyebrow: "SESLİ ARAMA", tone: "success", icon: "phone",
+        confirmText: "Katıl", cancelText: "Reddet",
+      }).then((accepted) => {
+        if (connection.readyState === WebSocket.OPEN) {
+          connection.send(JSON.stringify({
+            type: "call-response",
+            toUserId: message.fromUserId,
+            callId: message.callId,
+            accepted,
+          }));
+        }
+        if (accepted) joinDirectCallRoom(message.callId);
+      });
     } else if (message.type === "call-invite-result") {
       const pendingCall = pendingCalls.get(message.callId);
       if (!pendingCall || message.delivered) return;
@@ -2459,7 +2463,7 @@ document.querySelector("#save-channel-permissions").addEventListener("click", as
 document.querySelector("#delete-channel").addEventListener("click", async (event) => {
   if (!pendingRename?.channel) return;
   const { server, channel } = pendingRename;
-  if (!window.confirm(`“${channel.name}” odası ve sohbet geçmişi silinsin mi?`)) return;
+  if (!await vcConfirm(`“${channel.name}” odası ve sohbet geçmişi kalıcı olarak silinecek.`, { title: "Oda silinsin mi?", confirmText: "Odayı sil", tone: "danger" })) return;
   const button = event.currentTarget;
   button.disabled = true;
   try {
@@ -2673,7 +2677,7 @@ function renderGuildServers() {
 document.querySelector("#leave-selected-server").addEventListener("click", async (event) => {
   const server = selectedServer;
   if (!server || server.canDelete || !accountUser) return;
-  if (!window.confirm(`“${server.name}” sunucusundan ayrılmak istiyor musun?`)) return;
+  if (!await vcConfirm(`“${server.name}” sunucusundan ayrılmak istiyor musun?`, { title: "Sunucudan ayrıl", confirmText: "Ayrıl", tone: "danger" })) return;
   event.currentTarget.disabled = true;
   try {
     await apiRequest(`/api/servers/${server.id}/leave`, { method: "POST" });
@@ -2741,7 +2745,7 @@ document.querySelector("#open-server-roles").addEventListener("click", () => ope
 document.querySelector("#delete-server").addEventListener("click", async (event) => {
   const server = selectedServer;
   if (!server?.canDelete) return;
-  if (!window.confirm(`“${server.name}” sunucusu ve tüm kanalları/mesajları kalıcı olarak silinsin mi?`)) return;
+  if (!await vcConfirm(`“${server.name}” sunucusu ve tüm kanalları/mesajları kalıcı olarak silinecek. Bu işlem geri alınamaz.`, { title: "Sunucu silinsin mi?", confirmText: "Sunucuyu sil", tone: "danger" })) return;
   const button = event.currentTarget;
   button.disabled = true;
   try {
@@ -2978,7 +2982,7 @@ serverRoleForm.addEventListener("submit", async (event) => {
 
 async function deleteServerRole(role, button) {
   if (!role || role.isDefault || !selectedServer?.canManageRoles) return;
-  if (!window.confirm(`“${role.name}” rolü ve üyelere atanmış rolleri silinsin mi?`)) return;
+  if (!await vcConfirm(`“${role.name}” rolü silinecek ve üyelerden kaldırılacak.`, { title: "Rol silinsin mi?", confirmText: "Rolü sil", tone: "danger" })) return;
   const isEditingDeletedRole = editingServerRole?.id === role.id;
   button.disabled = true;
   try {
@@ -3948,9 +3952,9 @@ function showMemberContextMenu(target, x, y) {
     });
   }
   if (accountUser) {
-    addItem("Not Ekle / Düzenle", () => {
+    addItem("Not Ekle / Düzenle", async () => {
       const key = `oda.memberNote.${accountUser.id}.${target.userId || target.username}`;
-      const note = window.prompt(`“${target.username}” için yalnızca sana görünen not:`, localStorage.getItem(key) || "");
+      const note = await vcPrompt(`“${target.username}” için yalnızca sana görünen not.`, { title: "Not ekle", icon: "user", value: localStorage.getItem(key) || "", multiline: true, confirmText: "Kaydet" });
       if (note === null) return;
       if (note.trim()) localStorage.setItem(key, note.trim());
       else localStorage.removeItem(key);
@@ -3962,7 +3966,7 @@ function showMemberContextMenu(target, x, y) {
     addSeparator();
     const currentNickname = serverMembers.find((member) => member.id === target.userId)?.nickname || "";
     addItem("Takma Adı Değiştir", async () => {
-      const nickname = window.prompt(`${target.username} için takma ad (boş bırakırsan kaldırılır):`, currentNickname);
+      const nickname = await vcPrompt(`${target.username} için takma ad. Boş bırakırsan kaldırılır.`, { title: "Takma adı değiştir", icon: "user", value: currentNickname, maxLength: 32, confirmText: "Kaydet" });
       if (nickname === null) return;
       try {
         await apiRequest(`/api/servers/${server.id}/members/${target.userId}/nickname`, {
@@ -3994,7 +3998,7 @@ function showMemberContextMenu(target, x, y) {
   }
   if (friend && !targetIsSelf) {
     addItem("Arkadaşlardan Çıkar", async () => {
-      if (!window.confirm(`${target.username} arkadaşlarından çıkarılsın mı?`)) return;
+      if (!await vcConfirm(`${target.username} arkadaş listenden çıkarılacak.`, { title: "Arkadaşlıktan çıkar", confirmText: "Çıkar", tone: "danger" })) return;
       await removeFriend(friend);
     }, "is-danger");
   }
@@ -4013,8 +4017,8 @@ function showMemberContextMenu(target, x, y) {
       }
     });
     addItem(isBlocked ? "Engeli Kaldır" : "Engelle", async () => {
-      if (isBlocked && !window.confirm(`${target.username} kullanıcısının engeli kaldırılsın mı?`)) return;
-      if (!isBlocked && !window.confirm(`${target.username} engellensin mi? Arkadaşlık bağlantısı kaldırılır.`)) return;
+      if (isBlocked && !await vcConfirm(`${target.username} kullanıcısının engeli kaldırılacak.`, { title: "Engeli kaldır", confirmText: "Engeli kaldır", tone: "info", icon: "user" })) return;
+      if (!isBlocked && !await vcConfirm(`${target.username} engellenecek. Arkadaşlık bağlantısı da kaldırılır.`, { title: "Kullanıcı engellensin mi?", confirmText: "Engelle", tone: "danger", icon: "user" })) return;
       try {
         await apiRequest(`/api/users/${target.userId}/block`, { method: isBlocked ? "DELETE" : "POST" });
         await loadFriends();
@@ -4035,13 +4039,13 @@ function showMemberContextMenu(target, x, y) {
   if (server && target.isServerMember && target.userId && !targetIsSelf && server.canKickMembers) {
     addSeparator();
     addItem("Sunucudan At", async () => {
-      if (!window.confirm(`${target.username} bu sunucudan çıkarılsın mı?`)) return;
+      if (!await vcConfirm(`${target.username} bu sunucudan çıkarılacak.`, { title: "Sunucudan at", confirmText: "At", tone: "danger", icon: "user" })) return;
       await moderateServerMember(server, target, "kick");
     }, "is-danger");
   }
   if (server && target.isServerMember && target.userId && !targetIsSelf && server.canBanMembers) {
     addItem("Sunucudan Yasakla", async () => {
-      if (!window.confirm(`${target.username} sunucudan çıkarılıp yeniden katılması engellensin mi?`)) return;
+      if (!await vcConfirm(`${target.username} sunucudan çıkarılacak ve yeniden katılamayacak.`, { title: "Sunucudan yasakla", confirmText: "Yasakla", tone: "danger", icon: "user" })) return;
       await moderateServerMember(server, target, "ban");
     }, "is-danger");
   }
@@ -4365,7 +4369,7 @@ function appendChatMessageText(element, value) {
   linkifyMessageText(element);
 }
 
-chatForm.addEventListener("submit", (event) => {
+chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const text = chatInput.value.trim();
   if (!text) return;
@@ -4374,7 +4378,7 @@ chatForm.addEventListener("submit", (event) => {
     return;
   }
   if (text === "/clear") {
-    if (!confirm("Bu kanaldaki TÜM mesajları kalıcı olarak silmek istiyor musun? Bu işlem geri alınamaz.")) return;
+    if (!await vcConfirm("Bu kanaldaki TÜM mesajlar kalıcı olarak silinecek. Bu işlem geri alınamaz.", { title: "Tüm mesajlar silinsin mi?", confirmText: "Hepsini sil", tone: "danger" })) return;
     chatSocket.send(JSON.stringify({ type: "chat-clear" }));
   } else {
     chatSocket.send(JSON.stringify({ type: "chat-message", text }));
@@ -5394,6 +5398,12 @@ shareButton.addEventListener("click", async () => {
     return;
   }
   try {
+    // Masaüstü uygulamasında yerel sistem penceresi yerine uygulama içi seçici kullanılır.
+    if (window.vcDesktop?.getScreenSources && window.vcDesktop?.selectScreenSource) {
+      const sourceId = await pickScreenSource();
+      if (!sourceId) return;
+      await window.vcDesktop.selectScreenSource(sourceId);
+    }
     const screenStream = await navigator.mediaDevices.getDisplayMedia({
       video: selectedVideoConstraints(shareQuality),
       audio: false,
@@ -5599,6 +5609,302 @@ document.querySelector("#leave-link").addEventListener("click", (event) => {
 function showRoomError(message) {
   roomNotice.textContent = message;
   roomNotice.hidden = false;
+}
+
+// ---- Uygulama içi uyarı / onay / seçim pencereleri (tarayıcının yerel confirm/prompt yerine) ----
+const VC_MODAL_ICONS = {
+  info: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>',
+  warning: '<svg viewBox="0 0 24 24"><path d="M12 3.5 2.8 19.5h18.4L12 3.5z"></path><path d="M12 10v4.5M12 17.5h.01"></path></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"></path></svg>',
+  edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"></path></svg>',
+  phone: '<svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1z"></path></svg>',
+  screen: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8M12 16v4"></path></svg>',
+  window: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 9h18"></path></svg>',
+  user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 20a8 8 0 0 1 16 0"></path></svg>',
+  refresh: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"></path></svg>',
+  check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>',
+};
+
+const vcModalQueue = [];
+let vcModalActive = false;
+
+function showVcModal(build) {
+  return new Promise((resolve) => {
+    vcModalQueue.push({ build, resolve });
+    runVcModalQueue();
+  });
+}
+
+function runVcModalQueue() {
+  if (vcModalActive) return;
+  const item = vcModalQueue.shift();
+  if (!item) return;
+  vcModalActive = true;
+  const dialog = document.createElement("dialog");
+  dialog.className = "vc-modal";
+  let settled = false;
+  let cancelValue = null;
+  const api = {
+    setCancelValue(value) { cancelValue = value; },
+    close(value) {
+      if (settled) return;
+      settled = true;
+      dialog.classList.add("is-closing");
+      window.setTimeout(() => {
+        dialog.close();
+        dialog.remove();
+        vcModalActive = false;
+        item.resolve(value);
+        runVcModalQueue();
+      }, 120);
+    },
+  };
+  dialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    api.close(cancelValue);
+  });
+  dialog.addEventListener("mousedown", (event) => {
+    if (event.target === dialog) api.close(cancelValue);
+  });
+  item.build(dialog, api);
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+function vcModalCard(dialog, { icon = "info", tone = "info", eyebrow, title, message }) {
+  const card = document.createElement("div");
+  card.className = `vc-modal-card tone-${tone}`;
+  const badge = document.createElement("div");
+  badge.className = "vc-modal-icon";
+  badge.innerHTML = VC_MODAL_ICONS[icon] || VC_MODAL_ICONS.info;
+  const heading = document.createElement("div");
+  heading.className = "vc-modal-heading";
+  if (eyebrow) {
+    const label = document.createElement("p");
+    label.className = "vc-modal-eyebrow";
+    label.textContent = eyebrow;
+    heading.append(label);
+  }
+  const titleElement = document.createElement("h2");
+  titleElement.className = "vc-modal-title";
+  titleElement.textContent = title;
+  heading.append(titleElement);
+  if (message) {
+    const text = document.createElement("p");
+    text.className = "vc-modal-message";
+    text.textContent = message;
+    heading.append(text);
+  }
+  const header = document.createElement("div");
+  header.className = "vc-modal-header";
+  header.append(badge, heading);
+  const body = document.createElement("div");
+  body.className = "vc-modal-body";
+  const actions = document.createElement("div");
+  actions.className = "vc-modal-actions";
+  card.append(header, body, actions);
+  dialog.append(card);
+  return { card, body, actions };
+}
+
+function vcModalButton(label, kind, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `vc-modal-button is-${kind}`;
+  button.textContent = label;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+// confirm yerine: Promise<boolean>
+function vcConfirm(message, options = {}) {
+  const tone = options.tone || "warning";
+  return showVcModal((dialog, api) => {
+    api.setCancelValue(false);
+    const { actions } = vcModalCard(dialog, {
+      icon: options.icon || (tone === "danger" ? "trash" : tone === "success" ? "phone" : "warning"),
+      tone,
+      eyebrow: options.eyebrow,
+      title: options.title || "Emin misin?",
+      message,
+    });
+    const cancel = vcModalButton(options.cancelText || "Vazgeç", "secondary", () => api.close(false));
+    const confirm = vcModalButton(options.confirmText || "Onayla", tone === "danger" ? "danger" : "primary", () => api.close(true));
+    actions.append(cancel, confirm);
+    // Tehlikeli işlemlerde odak yanlışlıkla Enter ile onaylanmasın diye "Vazgeç"te başlar.
+    (tone === "danger" ? cancel : confirm).focus();
+    dialog.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && document.activeElement === dialog) api.close(tone !== "danger");
+    });
+  });
+}
+
+// prompt yerine: Promise<string | null>
+function vcPrompt(message, options = {}) {
+  return showVcModal((dialog, api) => {
+    api.setCancelValue(null);
+    const { body, actions } = vcModalCard(dialog, {
+      icon: options.icon || "edit",
+      tone: "info",
+      eyebrow: options.eyebrow,
+      title: options.title || "Değer gir",
+      message,
+    });
+    const field = document.createElement(options.multiline ? "textarea" : "input");
+    field.className = "vc-modal-input";
+    if (!options.multiline) field.type = "text";
+    else field.rows = 3;
+    field.value = options.value || "";
+    if (options.placeholder) field.placeholder = options.placeholder;
+    if (options.maxLength) field.maxLength = options.maxLength;
+    body.append(field);
+    const submit = () => api.close(field.value);
+    field.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (!options.multiline || event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        submit();
+      }
+    });
+    actions.append(
+      vcModalButton("Vazgeç", "secondary", () => api.close(null)),
+      vcModalButton(options.confirmText || "Kaydet", "primary", submit),
+    );
+    window.setTimeout(() => { field.focus(); field.select(); }, 30);
+  });
+}
+
+// Masaüstü uygulaması köprüsü (window.vcDesktop) varsa kullanılan ekran/pencere seçici.
+// Promise<string | null> — seçilen kaynağın kimliği ya da iptal.
+function pickScreenSource() {
+  return showVcModal((dialog, api) => {
+    api.setCancelValue(null);
+    dialog.classList.add("is-wide");
+    const { body, actions } = vcModalCard(dialog, {
+      icon: "screen",
+      tone: "info",
+      eyebrow: "EKRAN PAYLAŞIMI",
+      title: "Ne paylaşmak istersin?",
+      message: "Paylaşmak istediğin ekranı veya pencereyi seç.",
+    });
+    const tabs = document.createElement("div");
+    tabs.className = "vc-source-tabs";
+    tabs.setAttribute("role", "tablist");
+    const list = document.createElement("div");
+    list.className = "vc-source-grid";
+    body.append(tabs, list);
+    let sources = [];
+    let activeTab = "screen";
+    let selectedId = null;
+
+    const shareButton = vcModalButton("Paylaş", "primary", () => api.close(selectedId));
+    shareButton.disabled = true;
+    const refreshButton = vcModalButton("", "ghost", () => load());
+    refreshButton.innerHTML = `${VC_MODAL_ICONS.refresh}<span>Yenile</span>`;
+    const spacer = document.createElement("span");
+    spacer.className = "vc-modal-spacer";
+    actions.append(refreshButton, spacer, vcModalButton("Vazgeç", "secondary", () => api.close(null)), shareButton);
+
+    const renderTabs = () => {
+      tabs.replaceChildren();
+      for (const [type, label, icon] of [["screen", "Ekranlar", "screen"], ["window", "Pencereler", "window"]]) {
+        const count = sources.filter((source) => source.type === type).length;
+        const tab = document.createElement("button");
+        tab.type = "button";
+        tab.className = "vc-source-tab";
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-selected", String(activeTab === type));
+        tab.classList.toggle("is-active", activeTab === type);
+        tab.innerHTML = `${VC_MODAL_ICONS[icon]}<span></span><em></em>`;
+        tab.querySelector("span").textContent = label;
+        tab.querySelector("em").textContent = String(count);
+        tab.addEventListener("click", () => { activeTab = type; render(); });
+        tabs.append(tab);
+      }
+    };
+
+    const setMessage = (text, loading = false) => {
+      const note = document.createElement("p");
+      note.className = "vc-source-empty";
+      note.textContent = text;
+      note.classList.toggle("is-loading", loading);
+      list.replaceChildren(note);
+    };
+
+    const render = () => {
+      renderTabs();
+      const visible = sources.filter((source) => source.type === activeTab);
+      if (!visible.length) {
+        setMessage(activeTab === "screen" ? "Paylaşılabilir ekran bulunamadı." : "Paylaşılabilir pencere bulunamadı.");
+        return;
+      }
+      list.replaceChildren();
+      for (const source of visible) {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "vc-source";
+        item.setAttribute("aria-pressed", String(source.id === selectedId));
+        item.classList.toggle("is-selected", source.id === selectedId);
+        const preview = document.createElement("div");
+        preview.className = "vc-source-preview";
+        if (source.thumbnail) {
+          const image = document.createElement("img");
+          image.alt = "";
+          image.src = source.thumbnail;
+          preview.append(image);
+        }
+        const check = document.createElement("span");
+        check.className = "vc-source-check";
+        check.innerHTML = VC_MODAL_ICONS.check;
+        preview.append(check);
+        const label = document.createElement("div");
+        label.className = "vc-source-label";
+        if (source.appIcon) {
+          const icon = document.createElement("img");
+          icon.alt = "";
+          icon.src = source.appIcon;
+          label.append(icon);
+        }
+        const name = document.createElement("span");
+        name.textContent = source.name;
+        name.title = source.name;
+        label.append(name);
+        item.append(preview, label);
+        item.addEventListener("click", () => {
+          selectedId = source.id;
+          shareButton.disabled = false;
+          render();
+        });
+        item.addEventListener("dblclick", () => api.close(source.id));
+        list.append(item);
+      }
+    };
+
+    async function load() {
+      setMessage("Ekranlar ve pencereler alınıyor…", true);
+      refreshButton.disabled = true;
+      try {
+        const result = await window.vcDesktop.getScreenSources();
+        sources = (Array.isArray(result) ? result : []).filter((source) => source && typeof source.id === "string");
+        if (!sources.some((source) => source.type === activeTab) && sources.length) {
+          activeTab = sources[0].type === "window" ? "window" : "screen";
+        }
+        if (selectedId && !sources.some((source) => source.id === selectedId)) {
+          selectedId = null;
+          shareButton.disabled = true;
+        }
+        render();
+      } catch (error) {
+        console.warn("Ekran kaynakları alınamadı:", error);
+        sources = [];
+        renderTabs();
+        setMessage("Ekranlar ve pencereler alınamadı. Yenilemeyi dene.");
+      } finally {
+        refreshButton.disabled = false;
+      }
+    }
+    renderTabs();
+    load();
+  });
 }
 
 function showToast(message) {
