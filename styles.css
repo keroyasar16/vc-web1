@@ -1955,3 +1955,12 @@ textarea.vc-modal-input { min-height: 78px; max-height: 240px; }
 .dm-call-banner-text span { color: #9a9ea8; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dm-call-banner-join { flex: 0 0 auto; padding: 8px 14px; border: 0; border-radius: 6px; background: #23a559; color: #fff; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
 .dm-call-banner-join:hover { background: #1a8a47; }
+
+
+/* ---- Hata bildir ---- */
+.bug-report-button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid #3a3d46; border-radius: 6px; background: transparent; color: #c9ccd3; font: inherit; font-size: 11px; cursor: pointer; }
+.bug-report-button:hover { background: #2b2d36; color: #fff; }
+.bug-report-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.bug-report-counter { margin: 6px 0 0; color: #9a9ea8; font-size: 11px; text-align: right; }
+.bug-report-error { margin: 8px 0 0; color: #f2797d; font-size: 12px; }
+@media (max-width: 640px) { .bug-report-label { display: none; } .bug-report-button { padding: 6px 9px; } }

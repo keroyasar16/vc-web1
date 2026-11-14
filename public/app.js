@@ -6247,6 +6247,87 @@ function vcPrompt(message, options = {}) {
   });
 }
 
+// ---- Hata bildir ----
+function bugReportPageLabel() {
+  if (!dmView.hidden) return "Özel mesaj";
+  if (!chatView.hidden) return "Sunucu sohbeti";
+  if (voiceActive) return "Sesli oda";
+  if (!friendsView.hidden) return "Arkadaşlar";
+  return "Sunucu paneli";
+}
+
+function openBugReport() {
+  if (!accountUser || !authToken) {
+    showToast("Hata bildirmek için hesabınla giriş yapmalısın.");
+    return;
+  }
+  const page = bugReportPageLabel();
+  return showVcModal((dialog, api) => {
+    api.setCancelValue(null);
+    const { body, actions } = vcModalCard(dialog, {
+      icon: "warning",
+      tone: "info",
+      eyebrow: "GERİ BİLDİRİM",
+      title: "Hata bildir",
+      message: "Karşılaştığın sorunu ya da şikâyetini yaz. Ekibimiz inceleyecek.",
+    });
+    const field = document.createElement("textarea");
+    field.className = "vc-modal-input";
+    field.rows = 6;
+    field.maxLength = 1000;
+    field.placeholder = "Ne oldu? Mümkünse hangi adımlarda ortaya çıktığını da yaz.";
+    field.setAttribute("aria-label", "Hata açıklaması");
+    const counter = document.createElement("p");
+    counter.className = "bug-report-counter";
+    const error = document.createElement("p");
+    error.className = "bug-report-error";
+    error.hidden = true;
+    body.append(field, counter, error);
+    const send = vcModalButton("Gönder", "primary", async () => {
+      const text = field.value.trim();
+      if (text.length < 10) {
+        error.textContent = "Lütfen en az 10 karakterlik bir açıklama yaz.";
+        error.hidden = false;
+        field.focus();
+        return;
+      }
+      send.disabled = true;
+      error.hidden = true;
+      try {
+        await apiRequest("/api/bug-reports", { method: "POST", body: { reason: text, page } });
+      } catch (requestError) {
+        error.textContent = requestError.message || "Gönderilemedi. Tekrar dene.";
+        error.hidden = false;
+        send.disabled = false;
+        return;
+      }
+      dialog.replaceChildren();
+      const thanks = vcModalCard(dialog, {
+        icon: "check",
+        tone: "success",
+        eyebrow: "TEŞEKKÜRLER",
+        title: "Bildirimin için teşekkürler!",
+        message: "Geri bildirimin bize ulaştı. İnceleyip gerekli düzeltmeleri yapacağız.",
+      });
+      const close = vcModalButton("Kapat", "primary", () => api.close(true));
+      thanks.actions.append(close);
+      close.focus();
+    });
+    const updateCounter = () => { counter.textContent = `${field.value.length}/1000`; };
+    field.addEventListener("input", updateCounter);
+    field.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        send.click();
+      }
+    });
+    updateCounter();
+    actions.append(vcModalButton("Vazgeç", "secondary", () => api.close(null)), send);
+    window.setTimeout(() => field.focus(), 30);
+  });
+}
+document.querySelector("#bug-report-button")?.addEventListener("click", openBugReport);
+
 // Masaüstü uygulaması köprüsü (window.vcDesktop) varsa kullanılan ekran/pencere seçici.
 // Promise<string | null> — seçilen kaynağın kimliği ya da iptal.
 function pickScreenSource() {

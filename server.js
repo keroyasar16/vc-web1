@@ -922,6 +922,21 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       try{persistStore()}catch{store.control.reports.pop();sendJson(response,500,{error:"Kaydedilemedi."});return;}
       sendJson(response,201,{id:item.id,status:item.status});return;
     }
+    // Uygulama içi hata bildirimi: VC CONTROL panelindeki şikâyetler listesine "bug" türüyle düşer.
+    if (request.method === "POST" && pathname === "/api/bug-reports") {
+      const user = getUser(request);
+      if (!user) {sendJson(response,401,{error:"Hata bildirmek için giriş yap."});return;}
+      let body;
+      try { body = await readJson(request); } catch (error) { sendJson(response,error.status||400,{error:error.message}); return; }
+      const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+      if (reason.length < 10 || reason.length > 1000) {sendJson(response,400,{error:"Lütfen en az 10, en fazla 1000 karakterlik bir açıklama yaz."});return;}
+      if (limitedReport(user.id,"bug")) {sendJson(response,429,{error:"Saatlik bildirim sınırına ulaşıldı. Biraz sonra tekrar dene."});return;}
+      const page = typeof body.page === "string" ? body.page.trim().slice(0,100) : "";
+      const item={id:randomUUID(),reporterId:user.id,reporterName:user.username,targetType:"bug",targetId:"app",reason,page,userAgent:String(request.headers["user-agent"]||"").slice(0,200),status:"open",notes:[],createdAt:new Date().toISOString()};
+      store.control.reports.push(item);
+      try{persistStore()}catch{store.control.reports.pop();sendJson(response,500,{error:"Kaydedilemedi."});return;}
+      sendJson(response,201,{id:item.id,status:item.status});return;
+    }
     if (request.method === "POST" && pathname === "/api/ban-appeals") {
       // Banlı hesaplar giriş yapamadığından bu uç nokta mevcut oturumla kullanılabilir;
       // ban sonrası itiraz için ayrı kimlik doğrulamalı akış henüz gereklidir.
