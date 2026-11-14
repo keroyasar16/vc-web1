@@ -2964,6 +2964,7 @@ renameForm.addEventListener("submit", async (event) => {
   const submitButton = renameForm.querySelector('button[type="submit"]');
   submitButton.disabled = true;
   const { server, channel } = pendingRename;
+  const categorySelect = document.querySelector("#channel-category");
   const endpoint = channel
     ? `/api/servers/${server.id}/channels/${channel.id}`
     : `/api/servers/${server.id}`;
