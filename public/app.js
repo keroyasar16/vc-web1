@@ -2939,8 +2939,9 @@ document.querySelector("#save-channel-permissions").addEventListener("click", as
 document.querySelector("#delete-channel").addEventListener("click", async (event) => {
   if (!pendingRename?.channel) return;
   const { server, channel } = pendingRename;
-  if (!await vcConfirm(`“${channel.name}” odası ve sohbet geçmişi kalıcı olarak silinecek.`, { title: "Oda silinsin mi?", confirmText: "Odayı sil", tone: "danger" })) return;
+  // currentTarget, await sonrasında null olur; bu yüzden önce alınır.
   const button = event.currentTarget;
+  if (!await vcConfirm(`“${channel.name}” odası ve sohbet geçmişi kalıcı olarak silinecek.`, { title: "Oda silinsin mi?", confirmText: "Odayı sil", tone: "danger" })) return;
   button.disabled = true;
   try {
     const result = await apiRequest(`/api/servers/${server.id}/channels/${channel.id}`, { method: "DELETE" });
@@ -3156,8 +3157,9 @@ function renderGuildServers() {
 document.querySelector("#leave-selected-server").addEventListener("click", async (event) => {
   const server = selectedServer;
   if (!server || server.canDelete || !accountUser) return;
+  const leaveButton = event.currentTarget;
   if (!await vcConfirm(`“${server.name}” sunucusundan ayrılmak istiyor musun?`, { title: "Sunucudan ayrıl", confirmText: "Ayrıl", tone: "danger" })) return;
-  event.currentTarget.disabled = true;
+  leaveButton.disabled = true;
   try {
     await apiRequest(`/api/servers/${server.id}/leave`, { method: "POST" });
     if (currentServer?.id === server.id) leaveRoom();
@@ -3171,7 +3173,7 @@ document.querySelector("#leave-selected-server").addEventListener("click", async
     else document.querySelector(".workspace-location span:last-child").textContent = "Sunucuların";
     showToast("Sunucudan ayrıldın");
   } catch (error) { showToast(error.message); }
-  finally { renderServers(); }
+  finally { leaveButton.disabled = false; renderServers(); }
 });
 
 document.querySelector("#create-server-invite").addEventListener("click", async () => {
@@ -3224,8 +3226,8 @@ document.querySelector("#open-server-roles").addEventListener("click", () => ope
 document.querySelector("#delete-server").addEventListener("click", async (event) => {
   const server = selectedServer;
   if (!server?.canDelete) return;
-  if (!await vcConfirm(`“${server.name}” sunucusu ve tüm kanalları/mesajları kalıcı olarak silinecek. Bu işlem geri alınamaz.`, { title: "Sunucu silinsin mi?", confirmText: "Sunucuyu sil", tone: "danger" })) return;
   const button = event.currentTarget;
+  if (!await vcConfirm(`“${server.name}” sunucusu ve tüm kanalları/mesajları kalıcı olarak silinecek. Bu işlem geri alınamaz.`, { title: "Sunucu silinsin mi?", confirmText: "Sunucuyu sil", tone: "danger" })) return;
   button.disabled = true;
   try {
     await apiRequest(`/api/servers/${server.id}`, { method: "DELETE" });
