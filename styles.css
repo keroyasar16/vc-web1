@@ -1913,3 +1913,32 @@ textarea.vc-modal-input { min-height: 78px; max-height: 240px; }
 .vc-member-row.is-disabled { opacity: .45; cursor: not-allowed; }
 .vc-member-empty { margin: 8px 0; color: #9a9ea8; font-size: 12px; text-align: center; }
 .vc-member-count { margin: 0; color: #9a9ea8; font-size: 11px; }
+
+
+/* ---- DM içi sesli/görüntülü arama paneli ---- */
+.dm-call-slot { flex: 0 0 auto; background: #111214; border-bottom: 1px solid #1e1f22; }
+.dm-call-slot[hidden] { display: none; }
+.room-view.is-dm-call { min-height: 0; flex: 0 0 auto; padding: 20px 16px 16px; background: transparent; }
+.room-view.is-dm-call .room-header,
+.room-view.is-dm-call .call-hint,
+.room-view.is-dm-call .call-status { display: none; }
+.room-view.is-dm-call .participant-grid { flex: 0 0 auto; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 18px; min-height: 0; padding: 4px 0 30px; }
+.room-view.is-dm-call .participant-card { width: 84px; height: 84px; min-height: 0; flex: 0 0 auto; overflow: visible; border: 0; border-radius: 50%; background: transparent; box-shadow: none; }
+.room-view.is-dm-call .participant-avatar { width: 84px; height: 84px; border: 0; border-radius: 50%; font-size: 28px; }
+.room-view.is-dm-call .participant-card.speaking .participant-avatar { box-shadow: 0 0 0 3px #111214, 0 0 0 6px #23a559; }
+.room-view.is-dm-call .participant-card .participant-name { bottom: -26px; left: 50%; max-width: 150px; transform: translateX(-50%); background: transparent; font-size: 11px; }
+.room-view.is-dm-call .participant-card.has-camera,
+.room-view.is-dm-call .participant-card.is-sharing { width: min(300px, 46%); height: 170px; overflow: hidden; border: 1px solid #2b2d31; border-radius: 12px; background: #000; }
+.room-view.is-dm-call .participant-card.has-camera.speaking { border-color: #23a559; box-shadow: 0 0 0 2px #23a559; }
+.room-view.is-dm-call .participant-card.has-camera .participant-name,
+.room-view.is-dm-call .participant-card.is-sharing .participant-name { bottom: 8px; left: 8px; transform: none; background: rgba(0,0,0,.65); }
+.room-view.is-dm-call .participant-grid.has-screen-share .participant-card.is-sharing { width: min(640px, 100%); height: 320px; }
+.room-view.is-dm-call .call-bar { min-height: 0; justify-content: center; padding: 0; border: 0; background: transparent; }
+.room-view.is-dm-call .account-call-controls { flex-wrap: wrap; justify-content: center; gap: 8px; }
+.room-view.is-dm-call .account-leave-button { width: 62px; background: #da373c; color: #fff; border-radius: 10px; }
+.room-view.is-dm-call .account-leave-button:hover { background: #a1282c; }
+@media (max-width: 640px) {
+  .room-view.is-dm-call { padding: 14px 8px 12px; }
+  .room-view.is-dm-call .participant-card.has-camera,
+  .room-view.is-dm-call .participant-card.is-sharing { width: 100%; height: 190px; }
+}

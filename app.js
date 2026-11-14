@@ -242,6 +242,63 @@ function playVcCue(kind) {
   }
 }
 
+// ---- Gelen arama zil sesleri (sesli ve görüntülü arama farklı çalar) ----
+// Her desen: [frekans, başlangıç(sn), süre(sn)]; desen `period` saniyede bir tekrarlanır.
+const RINGTONES = {
+  // Sesli arama: klasik çift vuruşlu telefon zili.
+  voice: { type: "sine", gain: .11, period: 3, notes: [
+    [440, 0, .38], [480, 0, .38], [440, .5, .38], [480, .5, .38],
+  ] },
+  // Görüntülü arama: yükselen, melodik dörtlü.
+  video: { type: "triangle", gain: .12, period: 2.4, notes: [
+    [659.25, 0, .2], [783.99, .2, .2], [987.77, .4, .2], [1318.51, .6, .45],
+  ] },
+};
+
+function startRingtone(kind) {
+  const tone = RINGTONES[kind] || RINGTONES.voice;
+  prepareNotificationAudio();
+  const active = new Set();
+  let timer;
+  let stopped = false;
+  const ring = () => {
+    const context = notificationAudioContext;
+    if (stopped || !context || context.state !== "running") return;
+    const start = context.currentTime + .01;
+    for (const [frequency, offset, duration] of tone.notes) {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = tone.type;
+      oscillator.frequency.setValueAtTime(frequency, start + offset);
+      gain.gain.setValueAtTime(.0001, start + offset);
+      gain.gain.exponentialRampToValueAtTime(tone.gain, start + offset + .02);
+      gain.gain.setValueAtTime(tone.gain, start + offset + Math.max(.02, duration - .06));
+      gain.gain.exponentialRampToValueAtTime(.0001, start + offset + duration);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start(start + offset);
+      oscillator.stop(start + offset + duration + .02);
+      active.add(oscillator);
+      oscillator.addEventListener("ended", () => active.delete(oscillator));
+    }
+  };
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    window.clearInterval(timer);
+    window.clearTimeout(autoStop);
+    for (const oscillator of active) {
+      try { oscillator.stop(); } catch { /* zaten durmuş */ }
+    }
+    active.clear();
+  };
+  ring();
+  timer = window.setInterval(ring, tone.period * 1000);
+  // Arayan 30 sn sonra vazgeçer; zil sesi sonsuza kadar çalmasın.
+  const autoStop = window.setTimeout(stop, 30_000);
+  return { stop };
+}
+
 document.querySelector("#guild-home").addEventListener("click", () => {
   showFriendsView();
   acknowledgeNotifications().catch((error) => showToast(error.message));
@@ -599,6 +656,7 @@ function openDirectMessage(friend, initialMessage = "") {
     .filter((item) => item.type === "direct-message" && item.sourceId === conversationId && !item.readAt)
     .map((item) => item.id))
     .catch((error) => showToast(error.message));
+  syncDmCallPanel();
 }
 
 function connectDirectMessage(friend) {
@@ -1127,12 +1185,17 @@ function connectPresence() {
       const caller = message.groupId
         ? `${message.fromName}, “${message.groupName || "Grup"}” grubunda`
         : message.fromName;
+      const ringtone = startRingtone(isVideo ? "video" : "voice");
+      const callTarget = message.groupId
+        ? directMessageGroups.find((group) => group.id === message.groupId)
+        : friendData.friends.find((friend) => friend.id === message.fromUserId);
       vcConfirm(`${caller} ${isVideo ? "görüntülü" : "sesli"} arama başlatmak istiyor. Katılmak ister misin?`, {
         title: isVideo ? "Gelen görüntülü arama" : "Gelen sesli arama",
         eyebrow: isVideo ? "GÖRÜNTÜLÜ ARAMA" : "SESLİ ARAMA",
         tone: "success", icon: isVideo ? "video" : "phone",
         confirmText: "Katıl", cancelText: "Reddet",
       }).then((accepted) => {
+        ringtone.stop();
         if (connection.readyState === WebSocket.OPEN) {
           connection.send(JSON.stringify({
             type: "call-response",
@@ -1142,7 +1205,7 @@ function connectPresence() {
             accepted,
           }));
         }
-        if (accepted) joinDirectCallRoom(message.callId, { video: isVideo });
+        if (accepted) joinDirectCallRoom(message.callId, { video: isVideo, target: callTarget });
       });
     } else if (message.type === "call-invite-result") {
       const pendingCall = pendingCalls.get(message.callId);
@@ -1161,7 +1224,7 @@ function connectPresence() {
       }
       window.clearTimeout(pendingCall.timer);
       pendingCalls.delete(message.callId);
-      if (message.accepted) joinDirectCallRoom(message.callId, { video: pendingCall.video });
+      if (message.accepted) joinDirectCallRoom(message.callId, { video: pendingCall.video, target: pendingCall.friend });
       else showToast(`${pendingCall.friend.username} aramayı kabul etmedi`);
     }
   });
@@ -1244,13 +1307,63 @@ function startDirectCall(target, { video = false } = {}) {
     : `${target.username} kullanıcısına ${kind} arama isteği gönderildi`);
 }
 
-async function joinDirectCallRoom(callId, { video = false } = {}) {
+async function joinDirectCallRoom(callId, { video = false, target } = {}) {
   const name = accountUser?.username || displayName || joinForm.elements.name.value.trim();
   if (voiceActive) leaveRoom();
-  await enterVoiceRoom({ name, room: `call-${callId}` });
+  // Arama ayrı bir oda sayfası açmaz; ilgili DM'in içinde görünür.
+  let dmConversation;
+  if (target) {
+    if (activeDirectMessage?.id !== target.id || dmView.hidden) openDirectMessage(target);
+    if (!dmView.hidden && activeDirectMessage?.id === target.id) dmConversation = dmConversationId(target);
+  }
+  await enterVoiceRoom({ name, room: `call-${callId}`, dmConversation });
   // Görüntülü aramada odaya girer girmez kamera açılır.
   if (video && voiceActive && !cameraTrack && !cameraButton.disabled) cameraButton.click();
 }
+
+// ---- DM içi arama paneli ----
+const dmCallSlot = document.querySelector("#dm-call-slot");
+let dmCall;
+const HANGUP_ICON = '<path d="M3.5 14.5c4.7-4 12.3-4 17 0l-1.6 2.9-3.4-.9v-2.4a10 10 0 0 0-6 0v2.4l-3.4.9z"></path>';
+
+function setDmCallLeaveStyle(active) {
+  const button = document.querySelector("#leave-button");
+  const icon = button?.querySelector("svg");
+  if (!button || !icon) return;
+  icon.dataset.original ??= icon.innerHTML;
+  icon.innerHTML = active ? HANGUP_ICON : icon.dataset.original;
+  const label = active ? "Aramayı bitir" : "Odadan ayrıl";
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  const text = button.querySelector(".sr-only");
+  if (text) text.textContent = label;
+}
+
+function syncDmCallPanel() {
+  if (!dmCall || !voiceActive) return;
+  const controls = document.querySelector(".account-call-controls");
+  const showPanel = !dmView.hidden && activeDirectMessage &&
+    dmConversationId(activeDirectMessage) === dmCall.conversationId;
+  if (showPanel) {
+    if (roomView.parentElement !== dmCallSlot) dmCallSlot.append(roomView);
+    roomView.classList.add("is-dm-call");
+    dmCallSlot.hidden = false;
+    roomView.hidden = false;
+    const bar = roomView.querySelector(".call-bar");
+    if (controls && controls.parentElement !== bar) bar.append(controls);
+    setDmCallLeaveStyle(true);
+  } else {
+    // Başka bir sohbete geçildi: arama sürer, kontroller sol alttaki hesap çubuğuna döner.
+    roomView.hidden = true;
+    dmCallSlot.hidden = true;
+    const account = document.querySelector(".dashboard-account");
+    if (controls && account && controls.parentElement !== account) {
+      account.insertBefore(controls, document.querySelector("#logout-button"));
+    }
+    setDmCallLeaveStyle(false);
+  }
+}
+new MutationObserver(syncDmCallPanel).observe(dmView, { attributes: true, attributeFilter: ["hidden"] });
 
 async function refreshDirectMessageGroups() {
   if (!accountUser || !authToken) return;
@@ -4741,7 +4854,7 @@ async function joinServerChannel(server, channel) {
   await enterVoiceRoom({ name, server, channel });
 }
 
-async function enterVoiceRoom({ name = accountUser?.username || joinForm.elements.name.value.trim(), room, server, channel }) {
+async function enterVoiceRoom({ name = accountUser?.username || joinForm.elements.name.value.trim(), room, server, channel, dmConversation }) {
   if (!name) {
     showToast("Önce adını gir veya hesabınla giriş yap.");
     return;
@@ -4797,8 +4910,13 @@ async function enterVoiceRoom({ name = accountUser?.username || joinForm.element
   document.querySelector("#account-name").title = name;
   setAvatar(document.querySelector("#account-avatar"), accountUser || { username: name });
   landing.hidden = true;
-  roomInWorkspace = Boolean(server);
-  if (roomInWorkspace) {
+  roomInWorkspace = Boolean(server) || Boolean(dmConversation);
+  if (dmConversation) {
+    dmCall = { conversationId: dmConversation };
+    dashboard.hidden = false;
+    chatView.hidden = true;
+    topbar.hidden = true;
+  } else if (server) {
     if (!accountUser) {
       servers.set(server.id, server);
       renderServers();
@@ -4817,6 +4935,7 @@ async function enterVoiceRoom({ name = accountUser?.username || joinForm.element
     document.querySelector(".shell").append(roomView);
   }
   roomView.hidden = false;
+  syncDmCallPanel();
   document.querySelector("#room-title").textContent = server
     ? `${server.name} · ${channel.name}`
     : room;
@@ -5870,6 +5989,10 @@ function leaveRoom() {
     document.querySelector("#logout-button"),
   );
   document.querySelector(".workspace-main").append(roomView);
+  dmCall = undefined;
+  roomView.classList.remove("is-dm-call");
+  dmCallSlot.hidden = true;
+  setDmCallLeaveStyle(false);
   roomInWorkspace = false;
   joinButton.disabled = false;
   joinButtonLabel.textContent = roomCodeInput.value.trim() ? "Odaya katıl" : "Yeni oda oluştur";
