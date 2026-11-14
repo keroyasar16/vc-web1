@@ -141,6 +141,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
   }
   if (!Array.isArray(store.friendRequests)) store.friendRequests = [];
   if (!Array.isArray(store.directMessages)) store.directMessages = [];
+  if (!Array.isArray(store.groupDms)) store.groupDms = [];
   if (!Array.isArray(store.notifications)) store.notifications = [];
   for (const user of store.users) {
     if (!Array.isArray(user.friends)) user.friends = [];
@@ -445,6 +446,61 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       !sender.blockedUsers?.includes(recipientId) &&
       !recipient.blockedUsers?.includes(senderId) &&
       (areFriends(senderId, recipientId) || recipient.allowDirectMessages === true));
+  }
+
+  const MAX_GROUP_MEMBERS = 10;
+
+  function findGroup(groupId) {
+    return typeof groupId === "string" ? store.groupDms.find((item) => item.id === groupId) : undefined;
+  }
+
+  function groupDisplayName(group, viewerId) {
+    if (group.name) return group.name;
+    const names = group.memberIds
+      .filter((id) => id !== viewerId)
+      .map((id) => store.users.find((user) => user.id === id)?.username)
+      .filter(Boolean);
+    return names.join(", ") || "Grup";
+  }
+
+  function publicGroup(group, viewerId) {
+    let lastMessageAt = group.createdAt;
+    for (const message of store.directMessages) {
+      if (message.conversationId === group.id && message.createdAt > lastMessageAt) lastMessageAt = message.createdAt;
+    }
+    return {
+      id: group.id,
+      isGroup: true,
+      username: groupDisplayName(group, viewerId),
+      ownerId: group.ownerId,
+      conversationId: group.id,
+      createdAt: group.createdAt,
+      lastMessageAt,
+      members: group.memberIds.map((id) => {
+        const member = store.users.find((user) => user.id === id);
+        return member ? {
+          id: member.id,
+          username: member.username,
+          avatar: member.avatar || "",
+          isOnline: isUserOnline(member.id),
+        } : null;
+      }).filter(Boolean),
+    };
+  }
+
+  function sendToPresence(userId, payload) {
+    const serialized = JSON.stringify(payload);
+    for (const connection of userConnections.get(userId) || []) {
+      if (connection.presenceKind === "presence" && connection.readyState === WebSocket.OPEN) {
+        connection.send(serialized);
+      }
+    }
+  }
+
+  function broadcastGroupUpdate(group, extraUserIds = []) {
+    for (const userId of new Set([...group.memberIds, ...extraUserIds])) {
+      sendToPresence(userId, { type: "group-updated", groupId: group.id });
+    }
   }
 
   function notifyUser(userId, notification) {
@@ -1139,6 +1195,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       }
       const conversations = new Map();
       for (const message of store.directMessages) {
+        if (message.groupId) continue;
         if (message.senderId !== user.id && message.recipientId !== user.id) continue;
         const otherUserId = message.senderId === user.id ? message.recipientId : message.senderId;
         const conversationId = [user.id, otherUserId].sort().join(":");
@@ -1158,7 +1215,116 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       sendJson(response, 200, {
         users: [...conversations.values()].filter((item) => item.username)
           .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+        groups: store.groupDms
+          .filter((group) => group.memberIds.includes(user.id))
+          .map((group) => publicGroup(group, user.id))
+          .sort((a, b) => b.lastMessageAt.localeCompare(a.lastMessageAt)),
       });
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/api/groups") {
+      const user = getUser(request);
+      if (!user) {
+        sendJson(response, 401, { error: "Grup kurmak için giriş yap." });
+        return;
+      }
+      const body = await readJson(request);
+      const requested = Array.isArray(body.memberIds) ? body.memberIds.filter((id) => typeof id === "string") : [];
+      const memberIds = [...new Set(requested)].filter((id) => id !== user.id);
+      if (memberIds.length < 2) {
+        sendJson(response, 400, { error: "Grup kurmak için en az iki kişi seçmelisin." });
+        return;
+      }
+      if (memberIds.length + 1 > MAX_GROUP_MEMBERS) {
+        sendJson(response, 400, { error: `Bir grupta en fazla ${MAX_GROUP_MEMBERS} kişi olabilir.` });
+        return;
+      }
+      if (!memberIds.every((id) => areFriends(user.id, id))) {
+        sendJson(response, 403, { error: "Yalnızca arkadaşlarını gruba ekleyebilirsin." });
+        return;
+      }
+      const group = {
+        id: `g-${randomUUID()}`,
+        ownerId: user.id,
+        name: "",
+        memberIds: [user.id, ...memberIds],
+        createdAt: new Date().toISOString(),
+      };
+      store.groupDms.push(group);
+      try {
+        persistStore();
+      } catch (error) {
+        store.groupDms = store.groupDms.filter((item) => item !== group);
+        throw error;
+      }
+      broadcastGroupUpdate(group);
+      sendJson(response, 201, { group: publicGroup(group, user.id) });
+      return;
+    }
+
+    const groupRoute = pathname.match(/^\/api\/groups\/(g-[\da-f-]{36})\/(members|leave)$/i);
+    if (request.method === "POST" && groupRoute) {
+      const user = getUser(request);
+      if (!user) {
+        sendJson(response, 401, { error: "Giriş yapmalısın." });
+        return;
+      }
+      const group = findGroup(groupRoute[1]);
+      if (!group || !group.memberIds.includes(user.id)) {
+        sendJson(response, 404, { error: "Grup bulunamadı." });
+        return;
+      }
+      const previousMembers = [...group.memberIds];
+      if (groupRoute[2] === "leave") {
+        group.memberIds = group.memberIds.filter((id) => id !== user.id);
+        if (group.ownerId === user.id && group.memberIds.length) group.ownerId = group.memberIds[0];
+        const removeGroup = group.memberIds.length < 2;
+        const previousGroups = store.groupDms;
+        const previousMessages = store.directMessages;
+        if (removeGroup) {
+          store.groupDms = store.groupDms.filter((item) => item !== group);
+          store.directMessages = store.directMessages.filter((item) => item.conversationId !== group.id);
+        }
+        try {
+          persistStore();
+        } catch (error) {
+          group.memberIds = previousMembers;
+          store.groupDms = previousGroups;
+          store.directMessages = previousMessages;
+          throw error;
+        }
+        for (const connection of directMessageRooms.get(group.id) || []) {
+          if (connection.presenceUserId === user.id || removeGroup) connection.close(1008, "Gruptan ayrıldın");
+        }
+        broadcastGroupUpdate(group, previousMembers);
+        sendJson(response, 200, { ok: true });
+        return;
+      }
+      const body = await readJson(request);
+      const requested = Array.isArray(body.userIds) ? body.userIds.filter((id) => typeof id === "string") : [];
+      const added = [...new Set(requested)].filter((id) => !group.memberIds.includes(id));
+      if (added.length === 0) {
+        sendJson(response, 400, { error: "Eklenecek kullanıcı seçmelisin." });
+        return;
+      }
+      if (group.memberIds.length + added.length > MAX_GROUP_MEMBERS) {
+        sendJson(response, 400, { error: `Bir grupta en fazla ${MAX_GROUP_MEMBERS} kişi olabilir.` });
+        return;
+      }
+      if (!added.every((id) => areFriends(user.id, id))) {
+        sendJson(response, 403, { error: "Yalnızca arkadaşlarını gruba ekleyebilirsin." });
+        return;
+      }
+      group.memberIds.push(...added);
+      try {
+        persistStore();
+      } catch (error) {
+        group.memberIds = previousMembers;
+        throw error;
+      }
+      broadcastGroupUpdate(group);
+      sendJson(response, 200, { group: publicGroup(group, user.id) });
       return;
     }
 
@@ -3141,9 +3307,39 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         return;
       }
       if (message?.type === "call-invite") {
-        if (typeof message.toUserId !== "string" ||
-          typeof message.callId !== "string" || !/^[\da-f-]{36}$/i.test(message.callId) ||
-          !areFriends(userId, message.toUserId)) {
+        const video = message.video === true;
+        const callIdValid = typeof message.callId === "string" && /^[\da-f-]{36}$/i.test(message.callId);
+        const caller = store.users.find((item) => item.id === userId);
+        if (callIdValid && typeof message.groupId === "string") {
+          const group = findGroup(message.groupId);
+          if (!group || !group.memberIds.includes(userId)) {
+            webSocket.send(JSON.stringify({ type: "call-invite-result", callId: message.callId, delivered: false }));
+            return;
+          }
+          let delivered = false;
+          for (const memberId of group.memberIds) {
+            if (memberId === userId) continue;
+            const member = store.users.find((item) => item.id === memberId);
+            if (!member || member.blockedUsers?.includes(userId) || caller?.blockedUsers?.includes(memberId)) continue;
+            const targets = Array.from(userConnections.get(memberId) || [])
+              .filter((connection) => connection.presenceKind === "presence" && connection.readyState === WebSocket.OPEN);
+            for (const connection of targets) {
+              connection.send(JSON.stringify({
+                type: "call-invite",
+                callId: message.callId,
+                fromUserId: userId,
+                fromName: caller?.username || "Arkadaşın",
+                groupId: group.id,
+                groupName: groupDisplayName(group, memberId),
+                video,
+              }));
+              delivered = true;
+            }
+          }
+          webSocket.send(JSON.stringify({ type: "call-invite-result", callId: message.callId, delivered }));
+          return;
+        }
+        if (typeof message.toUserId !== "string" || !callIdValid || !areFriends(userId, message.toUserId)) {
           webSocket.send(JSON.stringify({ type: "call-invite-result", callId: message.callId, delivered: false }));
           return;
         }
@@ -3154,7 +3350,8 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
             type: "call-invite",
             callId: message.callId,
             fromUserId: userId,
-            fromName: store.users.find((item) => item.id === userId)?.username || "Arkadaşın",
+            fromName: caller?.username || "Arkadaşın",
+            video,
           }));
         }
         webSocket.send(JSON.stringify({
@@ -3168,17 +3365,18 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         typeof message.toUserId === "string" &&
         typeof message.callId === "string" &&
         /^[\da-f-]{36}$/i.test(message.callId) &&
-        typeof message.accepted === "boolean" &&
-        areFriends(userId, message.toUserId)) {
-        for (const connection of userConnections.get(message.toUserId) || []) {
-          if (connection.presenceKind === "presence" && connection.readyState === WebSocket.OPEN) {
-            connection.send(JSON.stringify({
-              type: "call-response",
-              callId: message.callId,
-              fromUserId: userId,
-              accepted: message.accepted,
-            }));
-          }
+        typeof message.accepted === "boolean") {
+        const group = findGroup(message.groupId);
+        const sameGroup = Boolean(group && group.memberIds.includes(userId) && group.memberIds.includes(message.toUserId));
+        if (sameGroup || areFriends(userId, message.toUserId)) {
+          sendToPresence(message.toUserId, {
+            type: "call-response",
+            callId: message.callId,
+            fromUserId: userId,
+            fromName: store.users.find((item) => item.id === userId)?.username || "",
+            accepted: message.accepted,
+            groupId: sameGroup ? group.id : undefined,
+          });
         }
       }
     });
@@ -3186,7 +3384,9 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
   });
 
   directMessageWebSocketServer.on("connection", (webSocket, request) => {
-    const recipientId = new URL(request.url, "http://localhost").searchParams.get("user");
+    const requestParams = new URL(request.url, "http://localhost").searchParams;
+    const recipientId = requestParams.get("user");
+    const groupId = requestParams.get("group");
     webSocket.isAlive = true;
     webSocket.messageTimes = [];
     webSocket.on("pong", () => {
@@ -3204,13 +3404,15 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       if (!webSocket.presenceUserId) {
         if (message?.type !== "presence-auth") return;
         const user = getUserFromToken(message.token);
-        if (!user || !canDirectMessage(user.id, recipientId)) {
-          webSocket.close(1008, "Bu kullanıcıyla özel mesajlaşamazsın");
+        const connectionGroup = groupId ? findGroup(groupId) : undefined;
+        if (groupId ? !user || !connectionGroup?.memberIds.includes(user.id)
+          : !user || !canDirectMessage(user.id, recipientId)) {
+          webSocket.close(1008, groupId ? "Bu grubun üyesi değilsin" : "Bu kullanıcıyla özel mesajlaşamazsın");
           return;
         }
         webSocket.sessionTokenHash = createHash("sha256").update(message.token).digest("hex");
         webSocket.presenceKind = "direct-message";
-        webSocket.directMessageRoomId = [user.id, recipientId].sort().join(":");
+        webSocket.directMessageRoomId = groupId ? connectionGroup.id : [user.id, recipientId].sort().join(":");
         setConnectionUser(webSocket, user.id);
         let room = directMessageRooms.get(webSocket.directMessageRoomId);
         if (!room) {
@@ -3262,8 +3464,10 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
 
       const text = typeof message?.text === "string" ? message.text.trim() : "";
       if (message?.type !== "dm-message" || !text || text.length > 2000) return;
-      if (!canDirectMessage(webSocket.presenceUserId, recipientId)) {
-        webSocket.close(1008, "Bu kullanıcının özel mesajları kapalı veya kullanıcı engellendi");
+      const messageGroup = groupId ? findGroup(groupId) : undefined;
+      if (groupId ? !messageGroup?.memberIds.includes(webSocket.presenceUserId)
+        : !canDirectMessage(webSocket.presenceUserId, recipientId)) {
+        webSocket.close(1008, groupId ? "Bu grubun üyesi değilsin" : "Bu kullanıcının özel mesajları kapalı veya kullanıcı engellendi");
         return;
       }
       const now = Date.now();
@@ -3278,7 +3482,8 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         id: randomUUID(),
         conversationId: webSocket.directMessageRoomId,
         senderId: webSocket.presenceUserId,
-        recipientId,
+        recipientId: groupId ? undefined : recipientId,
+        groupId: groupId || undefined,
         name: store.users.find((item) => item.id === webSocket.presenceUserId).username,
         text,
         createdAt: new Date(now).toISOString(),
@@ -3304,13 +3509,26 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       for (const recipient of directMessageRooms.get(webSocket.directMessageRoomId) || []) {
         if (recipient.readyState === WebSocket.OPEN) recipient.send(serialized);
       }
-      notifyUser(recipientId, {
-        type: "direct-message",
-        title: "Yeni özel mesaj",
-        body: `${directMessage.name}: ${text.slice(0, 120)}`,
-        senderId: directMessage.senderId,
-        sourceId: directMessage.conversationId,
-      });
+      if (groupId) {
+        for (const memberId of messageGroup.memberIds) {
+          if (memberId === directMessage.senderId) continue;
+          notifyUser(memberId, {
+            type: "direct-message",
+            title: `Yeni grup mesajı · ${groupDisplayName(messageGroup, memberId)}`,
+            body: `${directMessage.name}: ${text.slice(0, 120)}`,
+            senderId: directMessage.senderId,
+            sourceId: directMessage.conversationId,
+          });
+        }
+      } else {
+        notifyUser(recipientId, {
+          type: "direct-message",
+          title: "Yeni özel mesaj",
+          body: `${directMessage.name}: ${text.slice(0, 120)}`,
+          senderId: directMessage.senderId,
+          sourceId: directMessage.conversationId,
+        });
+      }
     });
     webSocket.on("close", () => {
       const roomId = webSocket.directMessageRoomId;

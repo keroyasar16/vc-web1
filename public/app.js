@@ -92,6 +92,9 @@ let accountUser;
 let selectedServer;
 let friendData = { friends: [], incomingRequests: [], outgoingRequests: [], blockedUserIds: [] };
 let directMessageUsers = [];
+let directMessageGroups = [];
+let dmPinsOpen = false;
+const MAX_GROUP_MEMBERS = 10;
 let notifications = [];
 let notificationSearchTimer;
 let notificationSearchSequence = 0;
@@ -323,9 +326,12 @@ async function loadFriends() {
   ]);
   friendData = result;
   directMessageUsers = directMessages.users;
+  directMessageGroups = directMessages.groups || [];
   if (activeDirectMessage) {
-    activeDirectMessage = friendData.friends.find((friend) => friend.id === activeDirectMessage.id) ||
-      directMessageUsers.find((friend) => friend.id === activeDirectMessage.id) || activeDirectMessage;
+    activeDirectMessage = activeDirectMessage.isGroup
+      ? directMessageGroups.find((group) => group.id === activeDirectMessage.id) || activeDirectMessage
+      : friendData.friends.find((friend) => friend.id === activeDirectMessage.id) ||
+        directMessageUsers.find((friend) => friend.id === activeDirectMessage.id) || activeDirectMessage;
   }
   renderFriends();
 }
@@ -464,25 +470,35 @@ function renderFriends() {
 function renderDirectMessagesSidebar() {
   const list = document.querySelector("#direct-messages-list");
   list.replaceChildren();
-  if (directMessageUsers.length === 0) {
+  const items = [
+    ...directMessageGroups.map((group) => ({ item: group, time: group.lastMessageAt || group.createdAt || "" })),
+    ...directMessageUsers.map((user) => ({ item: user, time: user.createdAt || "" })),
+  ].sort((a, b) => b.time.localeCompare(a.time));
+  if (items.length === 0) {
     const empty = document.createElement("p");
     empty.className = "friends-sidebar-empty";
     empty.textContent = "Henüz bir direkt mesajın yok.";
     list.append(empty);
     return;
   }
-  for (const friend of directMessageUsers) {
+  for (const { item: friend } of items) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "direct-message-link";
     button.classList.toggle("is-active", activeDirectMessage?.id === friend.id && !dmView.hidden);
     button.addEventListener("click", () => openDirectMessage(friend));
     const avatar = document.createElement("span");
-    avatar.className = `friend-avatar${friend.isOnline ? " is-online" : ""}`;
-    setAvatar(avatar, friend);
+    avatar.className = `friend-avatar${friend.isOnline && !friend.isGroup ? " is-online" : ""}`;
+    setDmAvatar(avatar, friend);
     const name = document.createElement("span");
     name.textContent = friend.username;
     button.append(avatar, name);
+    if (friend.isGroup) {
+      const meta = document.createElement("span");
+      meta.className = "direct-message-meta";
+      meta.textContent = `${friend.members?.length || 0} üye`;
+      button.append(meta);
+    }
     list.append(button);
   }
 }
@@ -559,9 +575,11 @@ function renderFriendSearchMatches(query) {
 function openDirectMessage(friend, initialMessage = "") {
   const isFriend = friendData.friends.some((item) => item.id === friend?.id);
   const hasPermission = directMessageUsers.some((item) => item.id === friend?.id) || friend?.canMessage;
-  if (!accountUser || !friend?.id || (!isFriend && !hasPermission)) return;
+  if (!accountUser || !friend?.id || (!friend.isGroup && !isFriend && !hasPermission)) return;
   closeDirectMessageConnection();
   activeDirectMessage = friend;
+  dmPinsOpen = false;
+  updateDmPinButton(0);
   friendsView.hidden = true;
   dashboardContent.hidden = true;
   roomView.hidden = true;
@@ -569,17 +587,14 @@ function openDirectMessage(friend, initialMessage = "") {
   dmView.hidden = false;
   document.querySelector("#friends-sidebar").hidden = false;
   document.querySelector("#friends-sidebar-home").classList.remove("is-active");
-  document.querySelector(".workspace-location span:last-child").textContent = friend.username;
-  document.querySelector("#dm-title").textContent = friend.username;
-  setAvatar(document.querySelector("#dm-avatar"), friend);
-  document.querySelector("#dm-status").textContent = friend.isOnline ? "Çevrim içi" : "Özel mesaj";
+  updateDmHeader();
   dmMessages.replaceChildren();
   dmInput.value = initialMessage;
   dmInput.disabled = true;
   dmSend.disabled = true;
   renderDirectMessagesSidebar();
   connectDirectMessage(friend);
-  const conversationId = [accountUser.id, friend.id].sort().join(":");
+  const conversationId = dmConversationId(friend);
   acknowledgeNotifications(notifications
     .filter((item) => item.type === "direct-message" && item.sourceId === conversationId && !item.readAt)
     .map((item) => item.id))
@@ -588,7 +603,7 @@ function openDirectMessage(friend, initialMessage = "") {
 
 function connectDirectMessage(friend) {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  const connection = new WebSocket(`${protocol}//${location.host}/dm?user=${encodeURIComponent(friend.id)}`);
+  const connection = new WebSocket(`${protocol}//${location.host}/dm?${friend.isGroup ? "group" : "user"}=${encodeURIComponent(friend.id)}`);
   directMessageSocket = connection;
   connection.addEventListener("open", () => {
     if (directMessageSocket === connection && authToken) {
@@ -611,7 +626,9 @@ function connectDirectMessage(friend) {
       if (message.messages.length === 0) {
         const empty = document.createElement("p");
         empty.className = "dm-empty-state";
-        empty.textContent = `Bu, ${friend.username} ile olan mesajlarının başlangıcı.`;
+        empty.textContent = friend.isGroup
+          ? `Bu, ${friend.username} grubunun başlangıcı.`
+          : `Bu, ${friend.username} ile olan mesajlarının başlangıcı.`;
         dmMessages.append(empty);
       }
       dmInput.disabled = false;
@@ -660,6 +677,11 @@ async function syncVisibleProfiles() {
     const results = await Promise.allSettled(requests);
     if (results[0].status === "fulfilled") {
       directMessageUsers = results[0].value.users || [];
+      directMessageGroups = results[0].value.groups || directMessageGroups;
+      if (activeDirectMessage?.isGroup) {
+        const freshGroup = directMessageGroups.find((group) => group.id === activeDirectMessage.id);
+        if (freshGroup) { activeDirectMessage = freshGroup; updateDmHeader(); }
+      }
       for (const profile of directMessageUsers) applyLiveProfile(profile, true);
       renderDirectMessagesSidebar();
     }
@@ -693,7 +715,8 @@ function resolveDirectMessageAuthor(message) {
   const id = message.senderId;
   const user = id === accountUser?.id ? accountUser :
     (liveProfileCache.get(id) || (id === activeDirectMessage?.id ? activeDirectMessage : null) ||
-    friendData.friends.find((item) => item.id === id) || directMessageUsers.find((item) => item.id === id));
+    friendData.friends.find((item) => item.id === id) || directMessageUsers.find((item) => item.id === id) ||
+    activeDirectMessage?.members?.find((item) => item.id === id));
   return { username: user?.username || message.name || "Kullanıcı", avatar: user?.avatar ?? message.avatar ?? "" };
 }
 
@@ -754,7 +777,8 @@ function messagePinnedBar(kind) {
   }
   bar.replaceChildren();
   const pins = [...messageState[kind].values()].filter((item) => item.pinnedAt);
-  bar.hidden = !pins.length;
+  if (kind === "dm") updateDmPinButton(pins.length);
+  bar.hidden = !pins.length || (kind === "dm" && !dmPinsOpen);
   if (!pins.length) return;
   const title = document.createElement("strong");
   title.textContent = `📌 Sabitlenen mesajlar (${pins.length})`;
@@ -1077,7 +1101,7 @@ function connectPresence() {
       updateNotificationBadge();
       const notification = message.notification;
       const activeConversationId = activeDirectMessage && accountUser
-        ? [accountUser.id, activeDirectMessage.id].sort().join(":")
+        ? dmConversationId(activeDirectMessage)
         : "";
       const isVisible = notification.type === "direct-message" &&
         notification.sourceId === activeConversationId && !dmView.hidden ||
@@ -1095,10 +1119,18 @@ function connectPresence() {
       updateServerMemberPresence(message);
     } else if (message.type === "server-members-error") {
       if (message.serverId === selectedServer?.id) showToast(message.message);
+    } else if (message.type === "group-updated") {
+      refreshDirectMessageGroups();
     } else if (message.type === "call-invite") {
-      if (!friendData.friends.some((friend) => friend.id === message.fromUserId)) return;
-      vcConfirm(`${message.fromName} seninle sesli arama başlatmak istiyor. Katılmak ister misin?`, {
-        title: "Gelen sesli arama", eyebrow: "SESLİ ARAMA", tone: "success", icon: "phone",
+      if (!message.groupId && !friendData.friends.some((friend) => friend.id === message.fromUserId)) return;
+      const isVideo = message.video === true;
+      const caller = message.groupId
+        ? `${message.fromName}, “${message.groupName || "Grup"}” grubunda`
+        : message.fromName;
+      vcConfirm(`${caller} ${isVideo ? "görüntülü" : "sesli"} arama başlatmak istiyor. Katılmak ister misin?`, {
+        title: isVideo ? "Gelen görüntülü arama" : "Gelen sesli arama",
+        eyebrow: isVideo ? "GÖRÜNTÜLÜ ARAMA" : "SESLİ ARAMA",
+        tone: "success", icon: isVideo ? "video" : "phone",
         confirmText: "Katıl", cancelText: "Reddet",
       }).then((accepted) => {
         if (connection.readyState === WebSocket.OPEN) {
@@ -1106,23 +1138,30 @@ function connectPresence() {
             type: "call-response",
             toUserId: message.fromUserId,
             callId: message.callId,
+            groupId: message.groupId,
             accepted,
           }));
         }
-        if (accepted) joinDirectCallRoom(message.callId);
+        if (accepted) joinDirectCallRoom(message.callId, { video: isVideo });
       });
     } else if (message.type === "call-invite-result") {
       const pendingCall = pendingCalls.get(message.callId);
       if (!pendingCall || message.delivered) return;
       window.clearTimeout(pendingCall.timer);
       pendingCalls.delete(message.callId);
-      showToast(`${pendingCall.friend.username} şu anda çevrim içi değil`);
+      showToast(pendingCall.groupId
+        ? "Gruptaki kimse şu anda çevrim içi değil"
+        : `${pendingCall.friend.username} şu anda çevrim içi değil`);
     } else if (message.type === "call-response") {
       const pendingCall = pendingCalls.get(message.callId);
       if (!pendingCall) return;
+      if (pendingCall.groupId && !message.accepted) {
+        showToast(`${message.fromName || "Bir üye"} aramayı kabul etmedi`);
+        return;
+      }
       window.clearTimeout(pendingCall.timer);
       pendingCalls.delete(message.callId);
-      if (message.accepted) joinDirectCallRoom(message.callId);
+      if (message.accepted) joinDirectCallRoom(message.callId, { video: pendingCall.video });
       else showToast(`${pendingCall.friend.username} aramayı kabul etmedi`);
     }
   });
@@ -1176,26 +1215,218 @@ function unsubscribeFromServerPresence() {
   subscribedPresenceServerId = undefined;
 }
 
-function startDirectCall(friend) {
-  if (!friend?.isOnline || presenceSocket?.readyState !== WebSocket.OPEN) {
+function startDirectCall(target, { video = false } = {}) {
+  const isGroup = Boolean(target?.isGroup);
+  if (presenceSocket?.readyState !== WebSocket.OPEN || (!isGroup && !target?.isOnline)) {
     showToast("Arama başlatmak için çevrim içi olup hazır olmalısın");
+    return;
+  }
+  if (!isGroup && !friendData.friends.some((item) => item.id === target.id)) {
+    showToast("Arama yalnızca arkadaşlarınla yapılabilir");
     return;
   }
   const callId = crypto.randomUUID();
   const timer = window.setTimeout(() => {
     if (!pendingCalls.has(callId)) return;
     pendingCalls.delete(callId);
-    showToast(`${friend.username} aramaya yanıt vermedi`);
+    showToast(isGroup ? "Gruptan kimse aramaya yanıt vermedi" : `${target.username} aramaya yanıt vermedi`);
   }, 30_000);
-  pendingCalls.set(callId, { friend, timer });
-  presenceSocket.send(JSON.stringify({ type: "call-invite", toUserId: friend.id, callId }));
-  showToast(`${friend.username} kullanıcısına arama isteği gönderildi`);
+  pendingCalls.set(callId, { friend: target, groupId: isGroup ? target.id : undefined, video, timer });
+  presenceSocket.send(JSON.stringify({
+    type: "call-invite",
+    callId,
+    video,
+    ...(isGroup ? { groupId: target.id } : { toUserId: target.id }),
+  }));
+  const kind = video ? "görüntülü" : "sesli";
+  showToast(isGroup
+    ? `${target.username} grubuna ${kind} arama isteği gönderildi`
+    : `${target.username} kullanıcısına ${kind} arama isteği gönderildi`);
 }
 
-function joinDirectCallRoom(callId) {
+async function joinDirectCallRoom(callId, { video = false } = {}) {
   const name = accountUser?.username || displayName || joinForm.elements.name.value.trim();
   if (voiceActive) leaveRoom();
-  enterVoiceRoom({ name, room: `call-${callId}` });
+  await enterVoiceRoom({ name, room: `call-${callId}` });
+  // Görüntülü aramada odaya girer girmez kamera açılır.
+  if (video && voiceActive && !cameraTrack && !cameraButton.disabled) cameraButton.click();
+}
+
+async function refreshDirectMessageGroups() {
+  if (!accountUser || !authToken) return;
+  try {
+    const result = await apiRequest("/api/dms");
+    directMessageUsers = result.users || directMessageUsers;
+    directMessageGroups = result.groups || [];
+    if (activeDirectMessage?.isGroup) {
+      const fresh = directMessageGroups.find((group) => group.id === activeDirectMessage.id);
+      if (!fresh) {
+        showToast("Bu gruptan ayrıldın");
+        showFriendsView();
+        return;
+      }
+      activeDirectMessage = fresh;
+      updateDmHeader();
+    }
+    renderDirectMessagesSidebar();
+  } catch (error) {
+    console.warn("Grup listesi yenilenemedi:", error);
+  }
+}
+
+// ---- DM başlığı: arama, sabitlenenler, kişi ekleme / grup kurma ----
+document.querySelector("#dm-voice-call").addEventListener("click", () => {
+  if (activeDirectMessage) startDirectCall(activeDirectMessage, { video: false });
+});
+document.querySelector("#dm-video-call").addEventListener("click", () => {
+  if (activeDirectMessage) startDirectCall(activeDirectMessage, { video: true });
+});
+document.querySelector("#dm-pins").addEventListener("click", () => {
+  const pinCount = [...messageState.dm.values()].filter((item) => item.pinnedAt).length;
+  if (!pinCount) {
+    showToast("Bu sohbette sabitlenmiş mesaj yok. Bir mesajın menüsünden sabitleyebilirsin.");
+    return;
+  }
+  dmPinsOpen = !dmPinsOpen;
+  messagePinnedBar("dm");
+});
+document.querySelector("#dm-add-member").addEventListener("click", () => openAddMembersDialog());
+document.querySelector("#dm-leave-group").addEventListener("click", async () => {
+  const group = activeDirectMessage;
+  if (!group?.isGroup) return;
+  const confirmed = await vcConfirm(`“${group.username}” grubundan ayrılmak istediğine emin misin?`, {
+    title: "Gruptan ayrıl", tone: "danger", confirmText: "Ayrıl", cancelText: "Vazgeç",
+  });
+  if (!confirmed) return;
+  try {
+    await apiRequest(`/api/groups/${encodeURIComponent(group.id)}/leave`, { method: "POST", body: {} });
+    directMessageGroups = directMessageGroups.filter((item) => item.id !== group.id);
+    showFriendsView();
+    showToast("Gruptan ayrıldın");
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+function pickGroupMembers({ candidates, title, message, confirmText, maxSelectable }) {
+  return showVcModal((dialog, api) => {
+    api.setCancelValue(null);
+    const { body, actions } = vcModalCard(dialog, { icon: "user", tone: "info", eyebrow: "GRUP SOHBETİ", title, message });
+    const picker = document.createElement("div");
+    picker.className = "vc-member-picker";
+    const search = document.createElement("input");
+    search.type = "search";
+    search.className = "vc-modal-input";
+    search.placeholder = "Arkadaşlarında ara";
+    search.setAttribute("aria-label", "Arkadaşlarında ara");
+    const list = document.createElement("ul");
+    list.className = "vc-member-list";
+    const counter = document.createElement("p");
+    counter.className = "vc-member-count";
+    const selected = new Set();
+    const submit = vcModalButton(confirmText, "primary", () => api.close([...selected]));
+    submit.disabled = true;
+    const refresh = () => {
+      counter.textContent = `${selected.size} / ${maxSelectable} kişi seçildi`;
+      submit.disabled = selected.size === 0;
+      for (const box of list.querySelectorAll("input")) {
+        const full = selected.size >= maxSelectable && !box.checked;
+        box.disabled = full;
+        box.closest(".vc-member-row").classList.toggle("is-disabled", full);
+      }
+    };
+    const render = () => {
+      const query = search.value.trim().toLocaleLowerCase("tr");
+      list.replaceChildren();
+      const visible = candidates.filter((friend) => friend.username.toLocaleLowerCase("tr").includes(query));
+      if (!visible.length) {
+        const empty = document.createElement("li");
+        empty.className = "vc-member-empty";
+        empty.textContent = "Kullanıcı bulunamadı.";
+        list.append(empty);
+        return;
+      }
+      for (const friend of visible) {
+        const row = document.createElement("li");
+        const label = document.createElement("label");
+        label.className = "vc-member-row";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = selected.has(friend.id);
+        box.addEventListener("change", () => {
+          if (box.checked) selected.add(friend.id); else selected.delete(friend.id);
+          refresh();
+        });
+        const avatar = document.createElement("span");
+        avatar.className = `friend-avatar${friend.isOnline ? " is-online" : ""}`;
+        setAvatar(avatar, friend);
+        const name = document.createElement("span");
+        name.textContent = friend.username;
+        label.append(box, avatar, name);
+        row.append(label);
+        list.append(row);
+      }
+      refresh();
+    };
+    search.addEventListener("input", render);
+    picker.append(search, list, counter);
+    body.append(picker);
+    actions.append(vcModalButton("Vazgeç", "secondary", () => api.close(null)), submit);
+    render();
+    window.setTimeout(() => search.focus(), 30);
+  });
+}
+
+async function openAddMembersDialog() {
+  const target = activeDirectMessage;
+  if (!target || !accountUser) return;
+  const isGroup = Boolean(target.isGroup);
+  if (!isGroup && !friendData.friends.some((friend) => friend.id === target.id)) {
+    showToast("Grup kurmak için bu kişinin arkadaşın olması gerekir.");
+    return;
+  }
+  const existingIds = new Set(isGroup ? target.members.map((member) => member.id) : [target.id]);
+  const candidates = friendData.friends.filter((friend) => !existingIds.has(friend.id));
+  const currentSize = isGroup ? target.members.length : 2;
+  const maxSelectable = MAX_GROUP_MEMBERS - currentSize;
+  if (maxSelectable <= 0) {
+    showToast(`Bir grupta en fazla ${MAX_GROUP_MEMBERS} kişi olabilir.`);
+    return;
+  }
+  if (!candidates.length) {
+    showToast("Eklenebilecek başka arkadaşın yok.");
+    return;
+  }
+  const picked = await pickGroupMembers({
+    candidates,
+    maxSelectable,
+    title: isGroup ? "Gruba kişi ekle" : "Grup oluştur",
+    message: isGroup
+      ? `“${target.username}” grubuna eklemek istediğin arkadaşlarını seç.`
+      : `${target.username} ile birlikte yeni bir grup sohbeti kurulur. Eklemek istediğin arkadaşlarını seç.`,
+    confirmText: isGroup ? "Ekle" : "Grubu oluştur",
+  });
+  if (!picked?.length) return;
+  try {
+    if (isGroup) {
+      const { group } = await apiRequest(`/api/groups/${encodeURIComponent(target.id)}/members`, {
+        method: "POST", body: { userIds: picked },
+      });
+      directMessageGroups = directMessageGroups.map((item) => (item.id === group.id ? group : item));
+      if (activeDirectMessage?.id === group.id) { activeDirectMessage = group; updateDmHeader(); }
+      renderDirectMessagesSidebar();
+      showToast(`${picked.length} kişi gruba eklendi`);
+    } else {
+      const { group } = await apiRequest("/api/groups", {
+        method: "POST", body: { memberIds: [target.id, ...picked] },
+      });
+      directMessageGroups = [group, ...directMessageGroups.filter((item) => item.id !== group.id)];
+      openDirectMessage(group);
+      showToast("Grup sohbeti oluşturuldu");
+    }
+  } catch (error) {
+    showToast(error.message);
+  }
 }
 
 function createFriendAction(label, action) {
@@ -1426,6 +1657,49 @@ function setAvatar(element, user) {
   element.classList.toggle("has-photo", Boolean(avatar));
 }
 
+const GROUP_AVATAR_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8.5" r="3.3"></circle><path d="M2.8 19.5a6.2 6.2 0 0 1 12.4 0M16 5.4a3.3 3.3 0 0 1 0 6.2M18 14.3a6 6 0 0 1 3.2 5.2"></path></svg>';
+
+function setDmAvatar(element, item) {
+  if (!element) return;
+  const isGroup = Boolean(item?.isGroup);
+  element.classList.toggle("is-group", isGroup);
+  if (isGroup) {
+    element.style.backgroundImage = "";
+    element.classList.remove("has-photo");
+    element.innerHTML = GROUP_AVATAR_ICON;
+  } else {
+    setAvatar(element, item);
+  }
+}
+
+function dmConversationId(item) {
+  return item.isGroup ? item.id : [accountUser.id, item.id].sort().join(":");
+}
+
+function updateDmHeader() {
+  const item = activeDirectMessage;
+  if (!item) return;
+  document.querySelector("#dm-title").textContent = item.username;
+  setDmAvatar(document.querySelector("#dm-avatar"), item);
+  document.querySelector("#dm-status").textContent = item.isGroup
+    ? `${item.members?.length || 0} üye`
+    : (item.isOnline ? "Çevrim içi" : "Özel mesaj");
+  document.querySelector("#dm-leave-group").hidden = !item.isGroup;
+  document.querySelector("#dm-add-member").title = item.isGroup ? "Gruba kişi ekle" : "DM'ye kişi ekle";
+  document.querySelector("#dm-add-member").setAttribute("aria-label", item.isGroup ? "Gruba kişi ekle" : "DM'ye kişi ekle");
+  if (!dmView.hidden) document.querySelector(".workspace-location span:last-child").textContent = item.username;
+}
+
+function updateDmPinButton(count) {
+  const button = document.querySelector("#dm-pins");
+  const badge = document.querySelector("#dm-pin-count");
+  if (!button || !badge) return;
+  badge.hidden = count === 0;
+  badge.textContent = String(count);
+  button.classList.toggle("is-active", dmPinsOpen && count > 0);
+  button.setAttribute("aria-pressed", String(dmPinsOpen && count > 0));
+}
+
 function showAccount() {
   landing.hidden = true;
   dashboard.hidden = false;
@@ -1481,6 +1755,7 @@ function showGuestAccount() {
   closePresenceConnection();
   closeDirectMessageConnection();
   activeDirectMessage = undefined;
+  directMessageGroups = [];
   accountUser = undefined;
   ignoredUserIds.clear();
   authToken = undefined;
@@ -5618,6 +5893,7 @@ const VC_MODAL_ICONS = {
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"></path></svg>',
   edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"></path></svg>',
   phone: '<svg viewBox="0 0 24 24"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1z"></path></svg>',
+  video: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="12.5" height="12" rx="2.5"></rect><path d="M15.5 10.5 21 7.5v9l-5.5-3"></path></svg>',
   screen: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M8 20h8M12 16v4"></path></svg>',
   window: '<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M3 9h18"></path></svg>',
   user: '<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4 20a8 8 0 0 1 16 0"></path></svg>',

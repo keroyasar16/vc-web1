@@ -1880,3 +1880,36 @@ textarea.vc-modal-input { min-height: 78px; max-height: 240px; }
 .vc-source-empty.is-loading::before { content: ""; display: block; width: 22px; height: 22px; margin: 0 auto 10px; border: 2px solid rgba(255,255,255,.15); border-top-color: var(--tone); border-radius: 50%; animation: vc-spin .7s linear infinite; }
 @keyframes vc-spin { to { transform: rotate(360deg); } }
 @media (max-width: 480px) { .vc-modal-card { padding: 20px; } .vc-modal-actions { flex-wrap: wrap; } .vc-modal-button { flex: 1; } }
+
+
+/* ---- DM başlık eylemleri: sesli/görüntülü arama, sabitlenenler, kişi ekle ---- */
+.dm-actions { margin-left: auto; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
+.dm-action-button { position: relative; width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: #b5bac1; cursor: pointer; transition: background .12s, color .12s; }
+.dm-action-button[hidden] { display: none; }
+.dm-action-button svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.dm-action-button:hover:not(:disabled) { background: #404249; color: #fff; }
+.dm-action-button:focus-visible { outline: 2px solid #5865f2; outline-offset: 1px; }
+.dm-action-button.is-active { background: #404249; color: #fff; }
+.dm-action-button.is-danger:hover:not(:disabled) { background: #da373c; color: #fff; }
+.dm-action-button:disabled { opacity: .4; cursor: not-allowed; }
+.dm-pin-count { position: absolute; top: 1px; right: 0; min-width: 15px; height: 15px; padding: 0 4px; box-sizing: border-box; display: grid; place-items: center; border-radius: 8px; background: #5865f2; color: #fff; font-size: 9px; font-weight: 700; line-height: 1; }
+.dm-pin-count[hidden] { display: none; }
+.friend-avatar.is-group { background: #4e5058; }
+.friend-avatar.is-group svg { width: 55%; height: 55%; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.direct-message-link .direct-message-meta { margin-left: auto; color: #80848e; font-size: 10px; }
+@media (max-width: 640px) {
+  .dm-header { padding: 0 8px; gap: 7px; }
+  .dm-action-button { width: 30px; height: 30px; }
+  .dm-action-button svg { width: 19px; height: 19px; }
+}
+
+/* ---- Kişi seçici (grup kur / gruba ekle) ---- */
+.vc-member-picker { display: flex; flex-direction: column; gap: 10px; }
+.vc-member-list { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.vc-member-row { display: flex; align-items: center; gap: 10px; padding: 7px 9px; border-radius: 8px; cursor: pointer; color: #e6e6e6; font-size: 13px; }
+.vc-member-row:hover { background: #2b2d36; }
+.vc-member-row input { width: 16px; height: 16px; accent-color: #5865f2; flex: 0 0 auto; }
+.vc-member-row .friend-avatar { width: 28px; height: 28px; font-size: 10px; }
+.vc-member-row.is-disabled { opacity: .45; cursor: not-allowed; }
+.vc-member-empty { margin: 8px 0; color: #9a9ea8; font-size: 12px; text-align: center; }
+.vc-member-count { margin: 0; color: #9a9ea8; font-size: 11px; }

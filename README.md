@@ -43,6 +43,10 @@ Metin sohbetinde sağdaki Üyeler paneli, sunucu üyelerini çevrimiçi ve çevr
 Katılımcılar mikrofon erişimini onayladıktan sonra ses kanalına bağlanır; ekran paylaşımı tarayıcının yerel ekran seçicisiyle başlatılır. Ses kontrollerinin yanından kamerayı açabilir; ekran paylaşımı ve kamera için 1080p 60fps, 1080p 30fps veya 720p 30fps kalitesini seçebilirsin. Ses kanalı başına en fazla 12 kişi desteklenir.
 Sesli odada konuşan katılımcıların profil simgesi yeşil bir halkayla vurgulanır; konuşma durunca vurgu söner.
 
+## DM'de arama ve grup sohbeti
+
+Özel mesaj ekranının sağ üstünde dört düğme bulunur: sesli arama, görüntülü arama, sabitlenen mesajlar ve kişi ekle. Arama yalnızca arkadaşlar arasında yapılır; karşı taraf kabul ettiğinde `call-<id>` ses odasına girilir, görüntülü aramada kamera odaya girer girmez açılır. Kişi ekle düğmesi 1:1 sohbette seçtiğin arkadaşlarınla yeni bir grup sohbeti kurar (en az 3 kişi), grup sohbetinde ise gruba yeni kişi ekler. Bir grupta en fazla 10 kişi olabilir; yalnızca kendi arkadaşlarını ekleyebilirsin. Grup sohbetinde aynı düğmelerle tüm üyeleri sesli/görüntülü aramaya davet edebilir, sağ üstteki çıkış düğmesiyle gruptan ayrılabilirsin. Grup mesajları da `data/store.json` içinde son 100 mesaj olarak saklanır; grupta son kişi kalırsa grup silinir. Sabitlenen mesajlar çubuğu artık varsayılan olarak kapalıdır ve sabitlenmiş mesaj sayısını gösteren iğne düğmesiyle açılır.
+
 ## Ağ notları
 
 Uygulama WebRTC için genel STUN hizmetini kullanır. İki kullanıcının ağları doğrudan medya bağlantısına izin vermediğinde güvenilir bağlantı için TURN hizmeti eklenip `public/app.js` içindeki `iceServers` ayarı dağıtım ortamına göre yapılandırılmalıdır. İnternetten erişimde HTTPS/WSS kullan. Bu sürümde e-posta doğrulaması, şifre sıfırlama ve sunucu/kanal moderasyon rolleri bulunmaz.
