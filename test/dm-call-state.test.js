@@ -123,3 +123,32 @@ test("DM araması: katılımcı durumu, çıkış sonrası yeniden katılım ve 
   }
   assert.ok(ended, "arama bitti durumu bekleniyordu");
 });
+
+test("hata bildirimi: giriş şart, doğrulama, panelin şikâyetler listesinde görünür", async (t) => {
+  const key = "k".repeat(40);
+  process.env.VC_CONTROL_API_KEY = key;
+  const app = await startApp();
+  t.after(() => { app.server.close(); delete process.env.VC_CONTROL_API_KEY; });
+  const alice = await app.register("alice");
+
+  assert.equal((await app.api("/api/bug-reports", { method: "POST", body: { reason: "giriş yapmadan gönderim" } })).status, 401);
+  assert.equal((await app.api("/api/bug-reports", { method: "POST", token: alice.token, body: { reason: "kısa" } })).status, 400);
+  assert.equal((await app.api("/api/bug-reports", { method: "POST", token: alice.token, body: { reason: "x".repeat(1001) } })).status, 400);
+
+  const ok = await app.api("/api/bug-reports", { method: "POST", token: alice.token, body: { reason: "DM aramasında ses kesiliyor", page: "Özel mesaj" } });
+  assert.equal(ok.status, 201);
+
+  const response = await fetch(`http://127.0.0.1:${app.server.address().port}/api/control/reports`, { headers: { "x-vc-control-key": key } });
+  const { reports } = await response.json();
+  const report = reports.find((item) => item.id === ok.data.id);
+  assert.equal(report.targetType, "bug");
+  assert.equal(report.reporterName, "alice");
+  assert.equal(report.reason, "DM aramasında ses kesiliyor");
+  assert.equal(report.status, "open");
+
+  // Saatlik sınır: 5 bildirim
+  for (let i = 0; i < 4; i += 1) {
+    assert.equal((await app.api("/api/bug-reports", { method: "POST", token: alice.token, body: { reason: `başka bir hata ${i} burada` } })).status, 201);
+  }
+  assert.equal((await app.api("/api/bug-reports", { method: "POST", token: alice.token, body: { reason: "altıncı bildirim burada" } })).status, 429);
+});
