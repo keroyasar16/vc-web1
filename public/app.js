@@ -215,6 +215,7 @@ const VC_CUES = {
   join: [[523, 0, .10], [784, .105, .13]],
   otherJoin: [[660, 0, .075], [880, .08, .11]],
   leave: [[660, 0, .085], [392, .09, .15]],
+  otherLeave: [[587, 0, .075], [392, .08, .12]],
   share: [[440, 0, .075], [660, .08, .075], [988, .16, .15]],
   mention: [[880, 0, .09], [1175, .13, .17]],
 };
@@ -4616,7 +4617,12 @@ function connectToRoom() {
     } else if (message.type === "signal") {
       handleSignal(message.from, message.data);
     } else if (message.type === "peer-left") {
+      const leftName = participantNames.get(message.peerId);
       removePeer(message.peerId);
+      if (leftName && voiceActive) {
+        playVcCue("otherLeave");
+        showToast(`${leftName} odadan ayrıldı`);
+      }
     }
   });
   const activeSocket = socket;
@@ -4915,6 +4921,208 @@ function publishVoiceState() {
   updateParticipantCount();
 }
 
+// ---- Yayın izleme kontrolleri: ses, sinema modu, tam ekran, yayından çık ----
+const hiddenStreams = new Set();
+const STREAM_ICONS = {
+  volume: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3z"></path><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"></path></svg>',
+  muted: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3zM16 9l5 6m0-6-5 6"></path></svg>',
+  cinema: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"></rect></svg>',
+  cinemaExit: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"></rect><path d="M9 10l-2 2 2 2M15 10l2 2-2 2"></path></svg>',
+  fullscreen: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg>',
+  fullscreenExit: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"></path></svg>',
+  leave: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M16 8l4 4-4 4M20 12H9"></path></svg>',
+};
+
+function setStreamLabel(element, text) {
+  element.title = text;
+  element.setAttribute("aria-label", text);
+}
+
+function streamButton(action, label) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "stream-control-button";
+  button.dataset.streamAction = action;
+  button.title = label;
+  button.setAttribute("aria-label", label);
+  return button;
+}
+
+function rerenderParticipant(id) {
+  const isSelf = id === "self";
+  renderParticipant(id, isSelf ? displayName : (participantNames.get(id) || "Katılımcı"),
+    isSelf ? localStream : participantStreams.get(id));
+}
+
+function streamFullscreenElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement;
+}
+
+async function toggleStreamFullscreen(card) {
+  try {
+    if (streamFullscreenElement() === card) {
+      await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    } else if (card.requestFullscreen || card.webkitRequestFullscreen) {
+      await (card.requestFullscreen || card.webkitRequestFullscreen).call(card);
+    } else {
+      showToast("Tarayıcın tam ekranı desteklemiyor.");
+    }
+  } catch (error) {
+    console.warn("Tam ekran değiştirilemedi:", error);
+    showToast("Tam ekran başlatılamadı.");
+  }
+}
+
+function setStreamCinema(card, on) {
+  for (const other of grid.querySelectorAll(".participant-card.is-cinema")) {
+    if (other !== card) other.classList.remove("is-cinema");
+  }
+  card.classList.toggle("is-cinema", on);
+  document.body.classList.toggle("vc-cinema", on);
+  refreshStreamButtons();
+}
+
+function refreshStreamButtons() {
+  const fullscreenCard = streamFullscreenElement();
+  for (const card of grid.querySelectorAll(".participant-card")) {
+    const controls = card.querySelector(".stream-controls");
+    if (!controls) continue;
+    const isFullscreen = fullscreenCard === card;
+    const isCinema = card.classList.contains("is-cinema");
+    const fullscreenButton = controls.querySelector('[data-stream-action="fullscreen"]');
+    fullscreenButton.innerHTML = isFullscreen ? STREAM_ICONS.fullscreenExit : STREAM_ICONS.fullscreen;
+    setStreamLabel(fullscreenButton, isFullscreen ? "Tam ekrandan çık" : "Tam ekran");
+    fullscreenButton.setAttribute("aria-pressed", String(isFullscreen));
+    const cinemaButton = controls.querySelector('[data-stream-action="cinema"]');
+    cinemaButton.innerHTML = isCinema ? STREAM_ICONS.cinemaExit : STREAM_ICONS.cinema;
+    setStreamLabel(cinemaButton, isCinema ? "Sinema modundan çık" : "Sinema modu");
+    cinemaButton.setAttribute("aria-pressed", String(isCinema));
+  }
+}
+
+function updateStreamVolumeUi(controls, level) {
+  const slider = controls.querySelector(".stream-volume");
+  const muteButton = controls.querySelector('[data-stream-action="mute"]');
+  slider.value = String(level);
+  slider.style.setProperty("--fill", `${Math.min(100, level / 2)}%`);
+  muteButton.innerHTML = level === 0 ? STREAM_ICONS.muted : STREAM_ICONS.volume;
+  setStreamLabel(muteButton, level === 0 ? "Yayının sesini aç" : "Yayının sesini kapat");
+}
+
+function createStreamControls(card) {
+  const controls = document.createElement("div");
+  controls.className = "stream-controls";
+  controls.hidden = true;
+  const volumeGroup = document.createElement("div");
+  volumeGroup.className = "stream-volume-group";
+  const muteButton = streamButton("mute", "Yayının sesini kapat");
+  const slider = document.createElement("input");
+  slider.type = "range";
+  slider.className = "stream-volume";
+  slider.min = "0";
+  slider.max = "200";
+  slider.step = "5";
+  slider.setAttribute("aria-label", "Yayın ses seviyesi");
+  volumeGroup.append(muteButton, slider);
+  const spacer = document.createElement("span");
+  spacer.className = "stream-controls-spacer";
+  const cinemaButton = streamButton("cinema", "Sinema modu");
+  const fullscreenButton = streamButton("fullscreen", "Tam ekran");
+  const leaveButton = streamButton("leave", "Yayından çık");
+  leaveButton.classList.add("is-danger");
+  leaveButton.innerHTML = STREAM_ICONS.leave;
+  controls.append(volumeGroup, spacer, cinemaButton, fullscreenButton, leaveButton);
+
+  const participantId = () => card.dataset.participant;
+  slider.addEventListener("input", () => {
+    setMemberVolume(participantId(), Number(slider.value));
+    updateStreamVolumeUi(controls, Number(slider.value));
+  });
+  muteButton.addEventListener("click", () => {
+    const id = participantId();
+    const current = memberVolumes.get(id) ?? getMemberVolume(id);
+    if (current > 0) {
+      controls.dataset.previousVolume = String(current);
+      setMemberVolume(id, 0);
+      updateStreamVolumeUi(controls, 0);
+    } else {
+      const restored = Number(controls.dataset.previousVolume) || 100;
+      setMemberVolume(id, restored);
+      updateStreamVolumeUi(controls, restored);
+    }
+  });
+  cinemaButton.addEventListener("click", () => setStreamCinema(card, !card.classList.contains("is-cinema")));
+  fullscreenButton.addEventListener("click", () => toggleStreamFullscreen(card));
+  leaveButton.addEventListener("click", () => {
+    const id = participantId();
+    if (id === "self") {
+      stopScreenShare();
+      return;
+    }
+    hiddenStreams.add(id);
+    rerenderParticipant(id);
+  });
+
+  // Fare/dokunma hareketinde kontroller birkaç saniye görünür kalır (tam ekran ve sinema modu için).
+  let hideTimer;
+  const reveal = () => {
+    card.classList.add("show-controls");
+    window.clearTimeout(hideTimer);
+    hideTimer = window.setTimeout(() => card.classList.remove("show-controls"), 2500);
+  };
+  card.addEventListener("pointermove", reveal);
+  card.addEventListener("pointerdown", reveal);
+  card.addEventListener("dblclick", (event) => {
+    if (event.target.closest(".stream-controls, .participant-name, .stream-watch-button")) return;
+    if (card.classList.contains("is-sharing")) toggleStreamFullscreen(card);
+  });
+  return controls;
+}
+
+function syncStreamControls(card, id, { watching, hidden }) {
+  let controls = card.querySelector(".stream-controls");
+  if (!controls) {
+    controls = createStreamControls(card);
+    card.append(controls);
+  }
+  controls.hidden = !watching;
+  const isSelf = id === "self";
+  controls.querySelector(".stream-volume-group").hidden = isSelf;
+  setStreamLabel(controls.querySelector('[data-stream-action="leave"]'), isSelf ? "Paylaşımı bitir" : "Yayından çık");
+  if (!isSelf) updateStreamVolumeUi(controls, memberVolumes.get(id) ?? getMemberVolume(id));
+
+  let watchButton = card.querySelector(".stream-watch-button");
+  if (hidden && !watchButton) {
+    watchButton = document.createElement("button");
+    watchButton.type = "button";
+    watchButton.className = "stream-watch-button";
+    watchButton.textContent = "Yayını izle";
+    watchButton.addEventListener("click", () => {
+      hiddenStreams.delete(card.dataset.participant);
+      rerenderParticipant(card.dataset.participant);
+    });
+    card.append(watchButton);
+  } else if (!hidden && watchButton) {
+    watchButton.remove();
+  }
+
+  if (!watching) {
+    if (card.classList.contains("is-cinema")) setStreamCinema(card, false);
+    if (streamFullscreenElement() === card) {
+      (document.exitFullscreen || document.webkitExitFullscreen)?.call(document)?.catch?.(() => {});
+    }
+  }
+  refreshStreamButtons();
+}
+
+document.addEventListener("fullscreenchange", refreshStreamButtons);
+document.addEventListener("webkitfullscreenchange", refreshStreamButtons);
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || streamFullscreenElement()) return;
+  const cinemaCard = grid.querySelector(".participant-card.is-cinema");
+  if (cinemaCard) setStreamCinema(cinemaCard, false);
+});
+
 function renderParticipant(id, name, stream) {
   let card = document.querySelector(`[data-participant="${CSS.escape(id)}"]`);
   if (!card) {
@@ -4944,7 +5152,8 @@ function renderParticipant(id, name, stream) {
   }
   const state = getParticipantState(id);
   const tracks = participantVideoTracks.get(id) || {};
-  const screenVideoTrack = state.sharing ? tracks.screen : undefined;
+  if (!state.sharing) hiddenStreams.delete(id);
+  const screenVideoTrack = state.sharing && !hiddenStreams.has(id) ? tracks.screen : undefined;
   const cameraVideoTrack = state.camera ? tracks.camera : undefined;
   card.classList.toggle("is-sharing", Boolean(screenVideoTrack));
   card.classList.toggle("has-camera", Boolean(cameraVideoTrack));
@@ -4969,6 +5178,11 @@ function renderParticipant(id, name, stream) {
     }
     if (!track.muted) video.play().catch((error) => console.debug("VC uzak video oynatılamadı:", error));
   }
+
+  syncStreamControls(card, id, {
+    watching: Boolean(screenVideoTrack),
+    hidden: state.sharing && hiddenStreams.has(id),
+  });
 
   if (id !== "self" && stream?.getAudioTracks().length) {
     let audio = card.querySelector("audio");
@@ -5080,7 +5294,10 @@ function removePeer(peerId) {
   participantVideoTracks.delete(peerId);
   stopSpeakingMonitor(peerId);
   speakingParticipants.delete(peerId);
-  document.querySelector(`[data-participant="${CSS.escape(peerId)}"]`)?.remove();
+  hiddenStreams.delete(peerId);
+  const removedCard = document.querySelector(`[data-participant="${CSS.escape(peerId)}"]`);
+  if (removedCard?.classList.contains("is-cinema")) document.body.classList.remove("vc-cinema");
+  removedCard?.remove();
   grid.classList.toggle("has-screen-share", Boolean(grid.querySelector(".participant-card.is-sharing")));
   updateParticipantCount();
 }
@@ -5310,6 +5527,9 @@ function leaveRoom() {
   participantStates.clear();
   participantStreams.clear();
   participantVideoTracks.clear();
+  hiddenStreams.clear();
+  document.body.classList.remove("vc-cinema");
+  if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
   const previousClientId = clientId;
   clientId = undefined;
   currentRoom = undefined;

@@ -1789,3 +1789,26 @@ body {
 .user-settings-page .settings-checkbox small { display: block; color: #949ba4; font-size: 10px; }
 #audio-sensitivity-block label[for="audio-sensitivity"] { display: block; margin-top: 10px; }
 #audio-sensitivity-block input[type="range"]:disabled { opacity: .45; }
+
+/* ---- Yayın izleme kontrolleri ---- */
+.stream-controls { position: absolute; top: 0; left: 0; right: 0; z-index: 5; display: flex; align-items: center; gap: 6px; padding: 10px 12px 28px; background: linear-gradient(rgba(0,0,0,.72), transparent); opacity: 0; pointer-events: none; transition: opacity .15s; }
+.stream-controls[hidden], .stream-volume-group[hidden], .stream-watch-button[hidden] { display: none; }
+.participant-card:hover .stream-controls, .participant-card:focus-within .stream-controls, .participant-card.show-controls .stream-controls { opacity: 1; pointer-events: auto; }
+.stream-controls-spacer { flex: 1; }
+.stream-volume-group { display: flex; align-items: center; gap: 4px; }
+.stream-control-button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: rgba(20,21,26,.72); color: #fff; cursor: pointer; backdrop-filter: blur(6px); }
+.stream-control-button:hover, .stream-control-button:focus-visible { background: rgba(88,101,242,.9); outline: none; }
+.stream-control-button[aria-pressed="true"] { background: rgba(88,101,242,.85); }
+.stream-control-button.is-danger:hover, .stream-control-button.is-danger:focus-visible { background: #da373c; }
+.stream-control-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.stream-volume { width: 0; opacity: 0; margin: 0; accent-color: #7c84ff; cursor: pointer; transition: width .15s, opacity .15s; }
+.stream-volume-group:hover .stream-volume, .stream-volume-group:focus-within .stream-volume { width: 96px; opacity: 1; }
+.stream-watch-button { position: absolute; z-index: 5; bottom: 50px; left: 50%; transform: translateX(-50%); padding: 8px 16px; border: 0; border-radius: 8px; background: #5865f2; color: #fff; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.stream-watch-button:hover { background: #4752c4; }
+@media (hover: none) { .stream-volume { width: 96px; opacity: 1; } }
+
+body.vc-cinema { overflow: hidden; }
+body.vc-cinema .toast { z-index: 1100; }
+.participant-card.is-cinema, .participant-grid.has-screen-share .participant-card.is-sharing.is-cinema { position: fixed; inset: 0; z-index: 1000; width: 100vw; height: 100vh; min-height: 0; margin: 0; border: 0; border-radius: 0; background: #000; }
+.participant-card:fullscreen { width: 100vw; height: 100vh; border: 0; border-radius: 0; background: #000; }
+.participant-card:-webkit-full-screen { width: 100vw; height: 100vh; border: 0; border-radius: 0; background: #000; }
