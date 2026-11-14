@@ -3367,6 +3367,19 @@ if (require.main === module) {
   server.listen(port, "0.0.0.0", () => {
     console.log(`VC hazır: http://localhost:${port}`);
   });
+  // Railway (and Docker) stop the old container with SIGTERM on every redeploy. Exit cleanly
+  // so this is not reported as a crash.
+  let shuttingDown = false;
+  const shutdown = (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${signal} alındı, sunucu kapatılıyor.`);
+    server.close(() => process.exit(0));
+    // Open WebSocket connections keep server.close() waiting, so do not wait forever.
+    setTimeout(() => process.exit(0), 2000).unref();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 module.exports = { createServer };

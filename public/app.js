@@ -1727,15 +1727,156 @@ function getAudioVolumePreference(key, maximum) {
   return Number.isFinite(saved) ? Math.max(0, Math.min(maximum, saved)) : 100;
 }
 
+const audioPrefs = {
+  noiseSuppression: true,
+  echoCancellation: true,
+  pushToTalk: false,
+  pushToTalkKey: "",
+  autoSensitivity: true,
+  sensitivity: 70,
+  testMonitor: true,
+};
+let voiceGate;
+let pushToTalkHeld = false;
+let pushToTalkCapturing = false;
+
+function loadAudioPrefs() {
+  const flag = (key, fallback) => {
+    const raw = getAudioPreference(key);
+    return raw === "" ? fallback : raw === "1";
+  };
+  audioPrefs.noiseSuppression = flag("noiseSuppression", true);
+  audioPrefs.echoCancellation = flag("echoCancellation", true);
+  audioPrefs.pushToTalk = flag("pushToTalk", false);
+  audioPrefs.autoSensitivity = flag("autoSensitivity", true);
+  audioPrefs.testMonitor = flag("testMonitor", true);
+  audioPrefs.pushToTalkKey = getAudioPreference("pushToTalkKey");
+  const sensitivity = Number(getAudioPreference("sensitivity", "70"));
+  audioPrefs.sensitivity = Number.isFinite(sensitivity) ? Math.max(0, Math.min(100, sensitivity)) : 70;
+}
+
+function saveAudioFlag(key, value) {
+  audioPrefs[key] = value;
+  saveAudioPreference(key, value ? "1" : "0");
+}
+
 function getAudioInputConstraints() {
   const deviceId = getAudioPreference("inputDevice");
   return {
     ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-    echoCancellation: true,
-    noiseSuppression: true,
+    echoCancellation: audioPrefs.echoCancellation,
+    noiseSuppression: audioPrefs.noiseSuppression,
     autoGainControl: true,
   };
 }
+
+// Higher sensitivity means a lower RMS threshold.
+function sensitivityToThreshold(sensitivity) {
+  return 0.003 + 0.2 * (1 - sensitivity / 100) ** 2;
+}
+
+// Noise gate + push-to-talk. Reads audioPrefs live, so settings apply instantly.
+function createVoiceGate(context, inputNode, outputNode) {
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 1024;
+  const gain = context.createGain();
+  gain.gain.value = 0;
+  inputNode.connect(analyser);
+  inputNode.connect(gain);
+  gain.connect(outputNode);
+  const samples = new Float32Array(analyser.fftSize);
+  const gate = { open: false, level: 0, threshold: sensitivityToThreshold(audioPrefs.sensitivity), noiseFloor: 0.01, holdUntil: 0 };
+  const tick = () => {
+    analyser.getFloatTimeDomainData(samples);
+    let sum = 0;
+    for (const value of samples) sum += value * value;
+    const rms = Math.sqrt(sum / samples.length);
+    const now = performance.now();
+    // Minimum tracker: falls fast to quieter input, rises slowly so speech does not raise it.
+    gate.noiseFloor = rms < gate.noiseFloor
+      ? gate.noiseFloor * 0.5 + rms * 0.5
+      : Math.min(rms, gate.noiseFloor * 1.002, 0.08);
+    gate.threshold = audioPrefs.autoSensitivity
+      ? Math.max(0.012, gate.noiseFloor * 3 + 0.006)
+      : sensitivityToThreshold(audioPrefs.sensitivity);
+    gate.level = rms;
+    let shouldOpen;
+    if (audioPrefs.pushToTalk) {
+      shouldOpen = pushToTalkHeld && Boolean(audioPrefs.pushToTalkKey);
+    } else {
+      if (rms >= gate.threshold) gate.holdUntil = now + 350;
+      shouldOpen = now < gate.holdUntil;
+    }
+    if (shouldOpen !== gate.open) {
+      gate.open = shouldOpen;
+      gain.gain.setTargetAtTime(shouldOpen ? 1 : 0, context.currentTime, shouldOpen ? 0.01 : 0.06);
+    }
+  };
+  const timer = window.setInterval(tick, 30);
+  gate.destroy = () => {
+    window.clearInterval(timer);
+    try { inputNode.disconnect(analyser); inputNode.disconnect(gain); gain.disconnect(); } catch { /* already disconnected */ }
+  };
+  return gate;
+}
+
+function formatPushToTalkKey(code) {
+  if (!code) return "Tuş Atanmamış";
+  return ({ Space: "BOŞLUK", Backquote: "`", CapsLock: "CAPS LOCK", Tab: "TAB" }[code]) ||
+    code.replace(/^Key/, "").replace(/^Digit/, "").replace(/^Numpad/, "NUM ").toLocaleUpperCase("tr");
+}
+
+function isTypingTarget(target) {
+  if (!(target instanceof Element)) return false;
+  if (target.closest("textarea, select, [contenteditable], [role=textbox]")) return true;
+  const input = target.closest("input");
+  // Checkboxes, sliders and buttons do not take typed text, so push-to-talk still works there.
+  return Boolean(input) && !["checkbox", "radio", "range", "button", "submit", "file", "color"].includes(input.type);
+}
+
+document.addEventListener("keydown", (event) => {
+  if (pushToTalkCapturing) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    pushToTalkCapturing = false;
+    if (event.key !== "Escape") {
+      audioPrefs.pushToTalkKey = event.code;
+      saveAudioPreference("pushToTalkKey", event.code);
+    }
+    updatePushToTalkControls();
+    return;
+  }
+  if (!audioPrefs.pushToTalk || !audioPrefs.pushToTalkKey || event.code !== audioPrefs.pushToTalkKey) return;
+  if (isTypingTarget(event.target)) return;
+  pushToTalkHeld = true;
+  if (event.repeat) event.preventDefault();
+}, true);
+document.addEventListener("keyup", (event) => {
+  if (event.code === audioPrefs.pushToTalkKey) pushToTalkHeld = false;
+}, true);
+window.addEventListener("blur", () => { pushToTalkHeld = false; });
+
+function updatePushToTalkControls() {
+  document.querySelector("#audio-push-to-talk").checked = audioPrefs.pushToTalk;
+  document.querySelector("#audio-ptt-row").hidden = !audioPrefs.pushToTalk;
+  document.querySelector("#audio-ptt-key").textContent = pushToTalkCapturing
+    ? "Bir tuşa bas…" : formatPushToTalkKey(audioPrefs.pushToTalkKey);
+  document.querySelector("#audio-ptt-assign").textContent = pushToTalkCapturing
+    ? "Dinleniyor…" : audioPrefs.pushToTalkKey ? "Tuşu Değiştir" : "Tuş Ata";
+  document.querySelector("#audio-auto-sensitivity").disabled = audioPrefs.pushToTalk;
+  document.querySelector("#audio-sensitivity").disabled = audioPrefs.pushToTalk || audioPrefs.autoSensitivity;
+}
+
+function syncAudioProcessingControls() {
+  document.querySelector("#audio-noise-suppression").checked = audioPrefs.noiseSuppression;
+  document.querySelector("#audio-echo-cancellation").checked = audioPrefs.echoCancellation;
+  document.querySelector("#audio-auto-sensitivity").checked = audioPrefs.autoSensitivity;
+  document.querySelector("#audio-test-monitor").checked = audioPrefs.testMonitor;
+  document.querySelector("#audio-sensitivity").value = String(audioPrefs.sensitivity);
+  document.querySelector("#audio-sensitivity-value").textContent = `${audioPrefs.sensitivity}%`;
+  updatePushToTalkControls();
+}
+loadAudioPrefs();
 
 function saveAudioPreference(key, value) {
   localStorage.setItem(`oda.audio.${key}`, value);
@@ -1775,6 +1916,7 @@ async function loadAudioSettings() {
   audioInputVolume.value = String(getAudioVolumePreference("inputVolume", 200));
   audioOutputVolume.value = String(getAudioVolumePreference("outputVolume", 100));
   updateAudioVolumeLabels();
+  syncAudioProcessingControls();
   applyOutputSettings();
 }
 
@@ -1872,15 +2014,16 @@ async function createVoiceMicrophoneStream(stream) {
   voiceGainNode.gain.value = getAudioVolumePreference("inputVolume", 200) / 100;
   const destination = voiceAudioContext.createMediaStreamDestination();
   voiceMicrophoneSource.connect(voiceGainNode);
-  voiceGainNode.connect(destination);
+  voiceGate = createVoiceGate(voiceAudioContext, voiceGainNode, destination);
   return destination.stream;
 }
 
-async function switchVoiceMicrophone() {
+async function switchVoiceMicrophone(silent = false) {
   let nextRawStream;
   let nextStream;
   const previousSource = voiceMicrophoneSource;
   const previousGain = voiceGainNode;
+  const previousGate = voiceGate;
   try {
     nextRawStream = await navigator.mediaDevices.getUserMedia({
       audio: getAudioInputConstraints(),
@@ -1893,6 +2036,7 @@ async function switchVoiceMicrophone() {
       return sender ? sender.replaceTrack(nextTrack) : Promise.resolve();
     }));
     stopSpeakingMonitor("self");
+    previousGate?.destroy();
     previousSource?.disconnect();
     previousGain?.disconnect();
     localStream?.getTracks().forEach((track) => track.stop());
@@ -1901,27 +2045,38 @@ async function switchVoiceMicrophone() {
     rawMicrophoneStream = nextRawStream;
     startSpeakingMonitor("self", localStream);
     renderParticipant("self", displayName, localStream);
-    showToast("Mikrofon değiştirildi");
+    if (!silent) showToast("Mikrofon değiştirildi");
   } catch (error) {
     nextStream?.getTracks().forEach((track) => track.stop());
     nextRawStream?.getTracks().forEach((track) => track.stop());
     if (voiceMicrophoneSource !== previousSource) voiceMicrophoneSource?.disconnect();
     if (voiceGainNode !== previousGain) voiceGainNode?.disconnect();
+    if (voiceGate !== previousGate) voiceGate?.destroy();
     voiceMicrophoneSource = previousSource;
     voiceGainNode = previousGain;
+    voiceGate = previousGate;
     showToast(getMediaError(error));
   }
 }
 
+let microphoneTestGate;
+let microphoneTestMonitor;
+
 function stopMicrophoneTest() {
   if (microphoneTestFrame) cancelAnimationFrame(microphoneTestFrame);
   microphoneTestFrame = undefined;
+  microphoneTestGate?.destroy();
+  microphoneTestGate = undefined;
+  microphoneTestMonitor = undefined;
   microphoneTestStream?.getTracks().forEach((track) => track.stop());
   microphoneTestStream = undefined;
   microphoneTestContext?.close().catch((error) => console.warn("Mikrofon testi kapatılamadı:", error));
   microphoneTestContext = undefined;
-  document.querySelector("#audio-input-meter").style.width = "0%";
+  const meter = document.querySelector("#audio-input-meter");
+  meter.style.width = "0%";
+  meter.classList.remove("is-open");
   document.querySelector(".audio-level-meter").setAttribute("aria-valuenow", "0");
+  document.querySelector("#audio-threshold-marker").style.left = "0";
   document.querySelector("#microphone-test-button").textContent = "Mikrofon Testi";
 }
 
@@ -1936,20 +2091,32 @@ async function startMicrophoneTest() {
       video: false,
     });
     microphoneTestContext = new AudioContext();
+    const sinkId = audioOutputDevice.value;
+    if (sinkId && typeof microphoneTestContext.setSinkId === "function") {
+      await microphoneTestContext.setSinkId(sinkId).catch((error) =>
+        console.warn("Test çıkışı seçilemedi:", error));
+    }
+    await microphoneTestContext.resume();
     const source = microphoneTestContext.createMediaStreamSource(microphoneTestStream);
-    const analyser = microphoneTestContext.createAnalyser();
-    analyser.fftSize = 512;
-    source.connect(analyser);
-    const samples = new Uint8Array(analyser.fftSize);
+    const inputGain = microphoneTestContext.createGain();
+    inputGain.gain.value = Number(audioInputVolume.value) / 100;
+    // Same processing as the voice room: volume -> noise gate / push-to-talk -> output.
+    microphoneTestMonitor = microphoneTestContext.createGain();
+    microphoneTestMonitor.gain.value = audioPrefs.testMonitor ? 1 : 0;
+    microphoneTestMonitor.connect(microphoneTestContext.destination);
+    source.connect(inputGain);
+    microphoneTestGate = createVoiceGate(microphoneTestContext, inputGain, microphoneTestMonitor);
     const meter = document.querySelector("#audio-input-meter");
+    const marker = document.querySelector("#audio-threshold-marker");
     const meterContainer = document.querySelector(".audio-level-meter");
     document.querySelector("#microphone-test-button").textContent = "Testi Durdur";
     const updateMeter = () => {
-      analyser.getByteTimeDomainData(samples);
-      let sum = 0;
-      for (const sample of samples) sum += ((sample - 128) / 128) ** 2;
-      const level = Math.min(100, Math.round(Math.sqrt(sum / samples.length) * 400));
+      const gate = microphoneTestGate;
+      if (!gate) return;
+      const level = Math.min(100, Math.round(gate.level * 400));
       meter.style.width = `${level}%`;
+      meter.classList.toggle("is-open", gate.open);
+      marker.style.left = audioPrefs.pushToTalk ? "-10px" : `${Math.min(100, gate.threshold * 400)}%`;
       meterContainer.setAttribute("aria-valuenow", String(level));
       microphoneTestFrame = requestAnimationFrame(updateMeter);
     };
@@ -1963,6 +2130,49 @@ async function startMicrophoneTest() {
 document.querySelector("#microphone-test-button").addEventListener("click", () => {
   if (microphoneTestStream) stopMicrophoneTest();
   else startMicrophoneTest();
+});
+
+async function reapplyMicrophoneProcessing() {
+  if (microphoneTestStream) {
+    stopMicrophoneTest();
+    await startMicrophoneTest();
+  }
+  if (voiceActive) await switchVoiceMicrophone(true);
+}
+document.querySelector("#audio-noise-suppression").addEventListener("change", (event) => {
+  saveAudioFlag("noiseSuppression", event.target.checked);
+  reapplyMicrophoneProcessing();
+});
+document.querySelector("#audio-echo-cancellation").addEventListener("change", (event) => {
+  saveAudioFlag("echoCancellation", event.target.checked);
+  reapplyMicrophoneProcessing();
+});
+document.querySelector("#audio-push-to-talk").addEventListener("change", (event) => {
+  saveAudioFlag("pushToTalk", event.target.checked);
+  pushToTalkHeld = false;
+  pushToTalkCapturing = false;
+  updatePushToTalkControls();
+  if (event.target.checked && !audioPrefs.pushToTalkKey) {
+    pushToTalkCapturing = true;
+    updatePushToTalkControls();
+  }
+});
+document.querySelector("#audio-ptt-assign").addEventListener("click", () => {
+  pushToTalkCapturing = !pushToTalkCapturing;
+  updatePushToTalkControls();
+});
+document.querySelector("#audio-auto-sensitivity").addEventListener("change", (event) => {
+  saveAudioFlag("autoSensitivity", event.target.checked);
+  updatePushToTalkControls();
+});
+document.querySelector("#audio-sensitivity").addEventListener("input", (event) => {
+  audioPrefs.sensitivity = Number(event.target.value);
+  saveAudioPreference("sensitivity", String(audioPrefs.sensitivity));
+  document.querySelector("#audio-sensitivity-value").textContent = `${audioPrefs.sensitivity}%`;
+});
+document.querySelector("#audio-test-monitor").addEventListener("change", (event) => {
+  saveAudioFlag("testMonitor", event.target.checked);
+  if (microphoneTestMonitor) microphoneTestMonitor.gain.value = event.target.checked ? 1 : 0;
 });
 
 document.querySelector("#speaker-test-button").addEventListener("click", async () => {
@@ -2908,7 +3118,8 @@ function renderChannelParticipants(list, server, channel) {
     participant.dataset.serverId = server.id;
     participant.dataset.serverMember = String(serverMembers.some((serverMember) => serverMember.id === member.id));
     participant.classList.toggle("is-ignored", ignoredUserIds.has(member.id || `guest:${participantId}`));
-    participant.classList.toggle("is-speaking", speakingParticipants.has(participantId));
+    participant.classList.toggle("is-speaking", speakingParticipants.has(participantId) ||
+      (participantId === clientId && speakingParticipants.has("self")));
     const avatar = document.createElement("span");
     avatar.className = "channel-participant-avatar";
     setAvatar(avatar, member.avatar ? { avatar: member.avatar, username: name } : serverMembers.find((user) => user.id === member.id) || { username: name });
@@ -4278,6 +4489,8 @@ async function enterVoiceRoom({ name = accountUser?.username || joinForm.element
     voiceMicrophoneSource = undefined;
     voiceGainNode?.disconnect();
     voiceGainNode = undefined;
+    voiceGate?.destroy();
+    voiceGate = undefined;
     submitButton.disabled = false;
     joinButtonLabel.textContent = roomCodeInput.value.trim() ? "Odaya katıl" : "Yeni oda oluştur";
     currentServer = undefined;
@@ -4826,6 +5039,11 @@ function updateSpeakingMonitors() {
       setParticipantSpeaking(id, false);
       continue;
     }
+    if (id === "self" && voiceGate) {
+      // The gate decides what is actually transmitted, so the indicator follows it.
+      setParticipantSpeaking(id, voiceGate.open);
+      continue;
+    }
     monitor.analyser.getByteTimeDomainData(monitor.samples);
     let sumOfSquares = 0;
     for (const sample of monitor.samples) {
@@ -4842,7 +5060,9 @@ function setParticipantSpeaking(id, isSpeaking) {
   if (isSpeaking) speakingParticipants.add(id);
   else speakingParticipants.delete(id);
   document.querySelector(`[data-participant="${CSS.escape(id)}"]`)?.classList.toggle("speaking", isSpeaking);
-  document.querySelectorAll(`[data-participant-id="${CSS.escape(id)}"]`)
+  // The sidebar tags the local user's entry with the server-assigned clientId, not "self".
+  const sidebarId = id === "self" && clientId ? clientId : id;
+  document.querySelectorAll(`[data-participant-id="${CSS.escape(sidebarId)}"]`)
     .forEach((participant) => participant.classList.toggle("is-speaking", isSpeaking));
 }
 
@@ -5082,6 +5302,8 @@ function leaveRoom() {
   voiceMicrophoneSource = undefined;
   voiceGainNode?.disconnect();
   voiceGainNode = undefined;
+  voiceGate?.destroy();
+  voiceGate = undefined;
   voiceAudioContext?.close().catch((error) => console.warn("Ses algılama kaynağı kapatılamadı:", error));
   voiceAudioContext = undefined;
   participantNames.delete("self");
