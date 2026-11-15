@@ -28,3 +28,5 @@ electron-builder kullanılıyorsa mevcut build ayarlarına aşağıdakileri birl
 
 Sürüm numarasını artırıp mevcut Windows derleme komutuyla yeni setup oluşturulmalı. Yeni kurulumla EXE, masaüstü kısayolu ve kurucu ikonu güncellenir. Web dağıtımı tek başına mevcut kurulu EXE ikonunu değiştirmez.
 Masaüstü kaynak projesi sağlandığında bu ayarlar doğrudan o projeye uygulanabilir.
+
+Bu sürümde logonun dış zemini alfa transparandır. PNG ve ICO dosyaları buna göre yenilendi.
