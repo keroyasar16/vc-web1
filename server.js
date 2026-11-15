@@ -2816,19 +2816,16 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
 
   const server = http.createServer((request, response) => {
     const requestUrl = new URL(request.url, "http://localhost");
+    if (request.method === "GET" && requestUrl.pathname === "/api/desktop-release") {
+      const version = String(process.env.VC_CLIENT_VERSION || "1.0.1").trim();
+      sendJson(response, 200, { version: /^\d+\.\d+\.\d+$/.test(version) ? version : null, url: "/download-client" });
+      return;
+    }
     if (request.method === "GET" && requestUrl.pathname === "/download-client") {
-      const externalUrl = String(process.env.VC_CLIENT_SETUP_URL || "").trim();
-      if (externalUrl) {
-        let target;
-        try { target = new URL(externalUrl); } catch (_) { target = null; }
-        if (!target || target.protocol !== "https:" || target.username || target.password) {
-          response.writeHead(503, { "Content-Type": "text/plain; charset=utf-8" }).end("Client indirme adresi hatalı yapılandırılmış.");
-          return;
-        }
-        response.writeHead(302, { Location: target.toString(), "Cache-Control": "no-store" }).end();
-        return;
-      }
-      const setupPath = path.join(process.env.DATA_DIR || path.join(__dirname, "data"), "downloads", "VC-Setup.exe");
+      // Serve the bundled release directly from our own domain.
+      const bundledSetup = path.join(__dirname, "downloads", "VC-Setup.exe");
+      const storedSetup = path.join(process.env.DATA_DIR || path.join(__dirname, "data"), "downloads", "VC-Setup.exe");
+      const setupPath = fs.existsSync(bundledSetup) ? bundledSetup : storedSetup;
       fs.stat(setupPath, (error, stats) => {
         if (error || !stats.isFile()) {
           response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }).end("VC istemci kurulum dosyası henüz yüklenmedi. Lütfen daha sonra tekrar deneyin.");
