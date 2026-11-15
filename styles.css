@@ -1964,3 +1964,7 @@ textarea.vc-modal-input { min-height: 78px; max-height: 240px; }
 .bug-report-counter { margin: 6px 0 0; color: #9a9ea8; font-size: 11px; text-align: right; }
 .bug-report-error { margin: 8px 0 0; color: #f2797d; font-size: 12px; }
 @media (max-width: 640px) { .bug-report-label { display: none; } .bug-report-button { padding: 6px 9px; } }
+
+/* VC supplied logo */
+.vc-brand-logo { width: 36px; height: 36px; display: block; object-fit: contain; flex-shrink: 0; }
+.guild-home .vc-brand-logo { width: 44px; height: 44px; }

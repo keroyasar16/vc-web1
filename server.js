@@ -75,6 +75,8 @@ const CHANNEL_PERMISSION_DEFINITIONS = {
 
 const publicDirectory = path.join(__dirname, "public");
 const mimeTypes = {
+  ".ico": "image/x-icon",
+  ".webmanifest": "application/manifest+json",
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
