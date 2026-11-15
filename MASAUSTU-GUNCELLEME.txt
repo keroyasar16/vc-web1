@@ -1,0 +1,18 @@
+VC 1.0.1 - DOĞRUDAN İNDİRME VE ESKİ SÜRÜM DUYURUSU
+
+Bu tam web paketinde gönderdiğiniz VC Setup 1.0.1.exe dosyası downloads/VC-Setup.exe olarak bulunur.
+
+1. ZIP'i çıkarın; vc-web1-main klasörünün İÇİNDEKİ dosyaları GitHub projesine mevcut dosyaların üzerine yükleyin. public, downloads ve Dockerfile mutlaka dahil olmalı.
+2. Railway dağıtımının tamamlanmasını bekleyin.
+3. VC_CLIENT_VERSION değişkeni varsa 1.0.1 yapın; yoksa varsayılan 1.0.1 zaten aktiftir.
+4. VC_CLIENT_SETUP_URL artık kullanılmaz; varsa kaldırabilirsiniz.
+5. https://www.vcchats.com/download-client adresinden yeni setup doğrudan iner. Dosya aynı sunucudan sunulur; başka siteye yönlendirme yoktur.
+6. 1.0.0 masaüstü kullanıcıları uygulamayı tamamen kapatıp açınca duyuru balonunu görür. Açık uygulamalar sayfayı yeniden yükleyene kadar eski web kodunu kullanır.
+
+DUYURU:
+Uygulamamızın en güncel sürümü yayında! vcchats.com adresimizden client'i indirip kullanmaya devam edebilirsiniz.
+
+Yeni sürümü indir butonu doğrudan setup'ı indirir. Otomatik kurulum yapılmaz; kullanıcı indirdiği dosyayı çalıştırır. 1.0.1 sürüm işareti taşıyan istemcilerde ve normal tarayıcıda balon gösterilmez.
+
+Gelecekte yeni setup yayınlarken downloads/VC-Setup.exe dosyasını yenileyin ve VC_CLIENT_VERSION değişkenini setup sürümüyle aynı yapın.
+Sunucu verilerini ve /app/data volume'ünü silmeyin.
