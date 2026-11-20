@@ -63,6 +63,7 @@ let socket;
 let localStream;
 let rawMicrophoneStream;
 let screenTrack;
+let screenAudioTrack;
 let cameraTrack;
 let voiceAudioContext;
 let voiceGainNode;
@@ -5894,15 +5895,23 @@ shareButton.addEventListener("click", async () => {
     }
     const screenStream = await navigator.mediaDevices.getDisplayMedia({
       video: selectedVideoConstraints(shareQuality),
-      audio: false,
+      audio: true,
     });
     screenTrack = screenStream.getVideoTracks()[0];
+    screenAudioTrack = screenStream.getAudioTracks()[0];
     if (!screenTrack) {
       screenStream.getTracks().forEach((track) => track.stop());
       return;
     }
     await Promise.all(Array.from(peers.values(), ({ screenTransceiver }) =>
       screenTransceiver?.sender.replaceTrack(screenTrack)));
+    // Ekran paylaşımı sesini karşı tarafa gönder
+    if (screenAudioTrack) {
+      await Promise.all(Array.from(peers.values(), ({ connection }) => {
+        const sender = connection.getSenders().find((item) => item.track?.kind === "audio");
+        return sender ? sender.replaceTrack(screenAudioTrack) : Promise.resolve();
+      }));
+    }
     screenTrack.addEventListener("ended", stopScreenShare, { once: true });
     participantVideoTracks.set("self", { ...(participantVideoTracks.get("self") || {}), screen: screenTrack });
     shareButton.classList.add("is-sharing");
@@ -5922,9 +5931,24 @@ function stopScreenShare() {
   const track = screenTrack;
   screenTrack = undefined;
   track.stop();
+  // Ekran paylaşımı sesini durdur
+  if (screenAudioTrack) {
+    screenAudioTrack.stop();
+    screenAudioTrack = undefined;
+  }
   setParticipantVideoTrack("self", "screen", undefined);
   Promise.all(Array.from(peers.values(), ({ screenTransceiver }) => screenTransceiver?.sender.replaceTrack(null)))
     .catch(() => showToast("Ekran paylaşımı durdurulurken bağlantı güncellenemedi."));
+  // Mikrofon sesini geri yükle
+  if (localStream) {
+    const micTrack = localStream.getAudioTracks()[0];
+    if (micTrack) {
+      Promise.all(Array.from(peers.values(), ({ connection }) => {
+        const sender = connection.getSenders().find((item) => item.track?.kind === "audio");
+        return sender ? sender.replaceTrack(micTrack) : Promise.resolve();
+      })).catch(() => showToast("Mikrofon sesi geri yüklenirken hata oluştu."));
+    }
+  }
   shareButton.classList.remove("is-sharing");
   shareLabel.textContent = "Ekran paylaş";
   shareButton.setAttribute("aria-label", "Ekran paylaş");
