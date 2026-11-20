@@ -5888,14 +5888,16 @@ shareButton.addEventListener("click", async () => {
   }
   try {
     // Masaüstü uygulamasında yerel sistem penceresi yerine uygulama içi seçici kullanılır.
+    let includeAudio = true;
     if (window.vcDesktop?.getScreenSources && window.vcDesktop?.selectScreenSource) {
-      const sourceId = await pickScreenSource();
-      if (!sourceId) return;
-      await window.vcDesktop.selectScreenSource(sourceId);
+      const result = await pickScreenSource();
+      if (!result?.id) return;
+      includeAudio = result.includeAudio;
+      await window.vcDesktop.selectScreenSource(result.id, includeAudio);
     }
     const screenStream = await navigator.mediaDevices.getDisplayMedia({
       video: selectedVideoConstraints(shareQuality),
-      audio: true,
+      audio: includeAudio,
     });
     screenTrack = screenStream.getVideoTracks()[0];
     screenAudioTrack = screenStream.getAudioTracks()[0];
@@ -6373,7 +6375,7 @@ function openBugReport() {
 document.querySelector("#bug-report-button")?.addEventListener("click", openBugReport);
 
 // Masaüstü uygulaması köprüsü (window.vcDesktop) varsa kullanılan ekran/pencere seçici.
-// Promise<string | null> — seçilen kaynağın kimliği ya da iptal.
+// Promise<{ id: string, includeAudio: boolean } | null> — seçilen kaynağın kimliği ve ses tercihi ya da iptal.
 function pickScreenSource() {
   return showVcModal((dialog, api) => {
     api.setCancelValue(null);
@@ -6394,8 +6396,25 @@ function pickScreenSource() {
     let sources = [];
     let activeTab = "screen";
     let selectedId = null;
+    let includeAudio = false;
 
-    const shareButton = vcModalButton("Paylaş", "primary", () => api.close(selectedId));
+    // Masaüstü uygulamasında ses paylaşım seçeneği göster
+    const isDesktop = !!(window.vcDesktop?.getScreenSources && window.vcDesktop?.selectScreenSource);
+    let audioLabel;
+    if (isDesktop) {
+      audioLabel = document.createElement("label");
+      audioLabel.className = "vc-source-audio-option";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = false;
+      checkbox.addEventListener("change", (e) => { includeAudio = e.target.checked; });
+      const checkboxText = document.createElement("span");
+      checkboxText.textContent = "Sistem sesini de paylaş";
+      audioLabel.append(checkbox, checkboxText);
+      body.append(audioLabel);
+    }
+
+    const shareButton = vcModalButton("Paylaş", "primary", () => api.close({ id: selectedId, includeAudio }));
     shareButton.disabled = true;
     const refreshButton = vcModalButton("", "ghost", () => load());
     refreshButton.innerHTML = `${VC_MODAL_ICONS.refresh}<span>Yenile</span>`;
