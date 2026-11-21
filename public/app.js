@@ -48,6 +48,58 @@ const renameDialog = document.querySelector("#rename-dialog");
 const renameForm = document.querySelector("#rename-form");
 const serverSettingsDialog = document.querySelector("#server-settings-dialog");
 const serverSettingsForm = document.querySelector("#server-settings-form");
+
+// Custom window controls (Electron only)
+const vcWindowControls = document.querySelector("#vc-window-controls");
+const vcWinMin = document.querySelector("#vc-win-min");
+const vcWinMax = document.querySelector("#vc-win-max");
+const vcWinClose = document.querySelector("#vc-win-close");
+
+function initWindowControls() {
+  // Only show in Electron
+  if (!window.vcDesktop?.window) {
+    return;
+  }
+  if (vcWindowControls) vcWindowControls.style.display = 'flex';
+
+  // Initial maximized state
+  window.vcDesktop.window.isMaximized().then((maximized) => {
+    updateMaxButton(maximized);
+  });
+
+  // Listen for state changes
+  const unsubscribe = window.vcDesktop.window.onStateChange(({ maximized }) => {
+    updateMaxButton(maximized);
+  });
+
+  // Button handlers
+  if (vcWinMin) vcWinMin.addEventListener('click', () => window.vcDesktop.window.minimize());
+  if (vcWinMax) vcWinMax.addEventListener('click', () => window.vcDesktop.window.maximize());
+  if (vcWinClose) vcWinClose.addEventListener('click', () => window.vcDesktop.window.close());
+
+  // Cleanup on unload (optional)
+  window.addEventListener('beforeunload', () => unsubscribe());
+}
+
+function updateMaxButton(maximized) {
+  if (!vcWinMax) return;
+  if (maximized) {
+    vcWinMax.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="9" height="9" rx="2"></rect><rect x="12" y="3" width="9" height="9" rx="2"></rect><rect x="3" y="12" width="9" height="9" rx="2"></rect><rect x="12" y="12" width="9" height="9" rx="2"></rect></svg>`;
+    vcWinMax.setAttribute('aria-label', 'Küçült');
+    vcWinMax.title = 'Küçült';
+  } else {
+    vcWinMax.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect></svg>`;
+    vcWinMax.setAttribute('aria-label', 'Büyüt');
+    vcWinMax.title = 'Büyüt';
+  }
+}
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initWindowControls);
+} else {
+  initWindowControls();
+}
 const serverRolesDialog = document.querySelector("#server-roles-dialog");
 const serverRoleForm = document.querySelector("#server-role-form");
 const userSettingsDialog = document.querySelector("#user-settings-dialog");

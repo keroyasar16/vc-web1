@@ -1725,6 +1725,52 @@ body {
 .vc-client-download-workspace { padding:7px 10px; font-size:11px; }
 @media(max-width:640px) { .vc-client-actions { gap:7px; } .vc-client-actions .topbar-note { display:none; } .vc-client-download { padding:8px 10px; font-size:11px; } .vc-client-download-workspace .vc-download-label { display:none; } .vc-client-download-workspace { font-size:16px; padding:5px 9px; } }
 
+/* Custom window controls (Electron title bar) */
+.vc-window-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 12px;
+  padding: 2px 4px;
+  background: rgba(255,255,255,.03);
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,.05);
+}
+.vc-win-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #b5bac1;
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.vc-win-btn:hover { background: rgba(255,255,255,.08); color: #fff; }
+.vc-win-btn:active { background: rgba(255,255,255,.12); }
+.vc-win-btn:focus-visible { outline: 2px solid #5865f2; outline-offset: 2px; }
+.vc-win-close:hover { background: #da373c; color: #fff; }
+.vc-win-close:active { background: #b32a2e; }
+
+/* Drag region for custom title bar */
+.topbar {
+  -webkit-app-region: drag;
+}
+.vc-window-controls,
+.vc-win-btn,
+.brand,
+.vc-client-actions,
+.vc-client-download,
+.topbar-note {
+  -webkit-app-region: no-drag;
+}
+
+/* Hide native title bar overlay if any */
+::-webkit-window-controls-overlay { display: none; }
+
 
 /* VC shortcut settings — Discord-inspired grid */
 .vc-shortcut-list { display: grid; gap: 0; margin: 18px 0 8px; }
