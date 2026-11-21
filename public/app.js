@@ -3853,6 +3853,7 @@ function renderChannelParticipants(list, server, channel) {
     if (canMoveMembers && member.id && !member.id.startsWith("guest:") && member.id !== accountUser?.id) {
       participant.draggable = true;
       participant.addEventListener("dragstart", (event) => {
+        event.stopPropagation(); // Prevent channel drag handler from intercepting
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", JSON.stringify({
           kind: "member",
@@ -3872,6 +3873,7 @@ function renderChannelParticipants(list, server, channel) {
     if (canMoveMembers && member.id && !member.id.startsWith("guest:") && member.id !== accountUser?.id) {
       participant.addEventListener("contextmenu", (event) => {
         event.preventDefault();
+        event.stopPropagation(); // Prevent other context menus
         showMemberMoveContextMenu(member, server, channel, event.clientX, event.clientY);
       });
     }
@@ -3900,41 +3902,62 @@ function renderChannelParticipants(list, server, channel) {
   }
 
   // Add drop zone for moving members between voice channels
+  // Remove existing listeners first to avoid duplicates
+  list.removeEventListener("dragover", handleParticipantDragOver);
+  list.removeEventListener("dragleave", handleParticipantDragLeave);
+  list.removeEventListener("drop", handleParticipantDrop);
+
   if (canMoveMembers) {
-    list.addEventListener("dragover", (event) => {
-      const data = event.dataTransfer.getData("text/plain");
-      if (!data) return;
-      try {
-        const dragData = JSON.parse(data);
-        if (dragData.kind === "member" && dragData.serverId === server.id && dragData.sourceChannelId !== channel.id) {
-          event.preventDefault();
-          event.dataTransfer.dropEffect = "move";
-          list.classList.add("is-drop-target");
-        }
-      } catch {
-        // Ignore invalid drag data
-      }
-    });
-    list.addEventListener("dragleave", (event) => {
-      // Only remove drop target if leaving the list entirely
-      if (!list.contains(event.relatedTarget)) {
-        list.classList.remove("is-drop-target");
-      }
-    });
-    list.addEventListener("drop", async (event) => {
+    list.addEventListener("dragover", handleParticipantDragOver);
+    list.addEventListener("dragleave", handleParticipantDragLeave);
+    list.addEventListener("drop", handleParticipantDrop);
+  }
+}
+
+// Named handler functions for proper removal
+function handleParticipantDragOver(event) {
+  const list = event.currentTarget;
+  const serverId = list.dataset.serverId;
+  const channelId = list.dataset.channelId;
+  const data = event.dataTransfer.getData("text/plain");
+  if (!data) return;
+  try {
+    const dragData = JSON.parse(data);
+    if (dragData.kind === "member" && dragData.serverId === serverId && dragData.sourceChannelId !== channelId) {
       event.preventDefault();
-      list.classList.remove("is-drop-target");
-      const data = event.dataTransfer.getData("text/plain");
-      if (!data) return;
-      try {
-        const dragData = JSON.parse(data);
-        if (dragData.kind === "member" && dragData.serverId === server.id && dragData.sourceChannelId !== channel.id) {
-          await moveMemberToChannel(server.id, dragData.userId, channel.id, dragData.username);
-        }
-      } catch {
-        // Ignore invalid drag data
-      }
-    });
+      event.stopPropagation(); // Prevent channel drag handler
+      event.dataTransfer.dropEffect = "move";
+      list.classList.add("is-drop-target");
+    }
+  } catch {
+    // Ignore invalid drag data
+  }
+}
+
+function handleParticipantDragLeave(event) {
+  const list = event.currentTarget;
+  // Only remove drop target if leaving the list entirely
+  if (!list.contains(event.relatedTarget)) {
+    list.classList.remove("is-drop-target");
+  }
+}
+
+async function handleParticipantDrop(event) {
+  event.preventDefault();
+  event.stopPropagation(); // Prevent channel drag handler
+  const list = event.currentTarget;
+  list.classList.remove("is-drop-target");
+  const serverId = list.dataset.serverId;
+  const channelId = list.dataset.channelId;
+  const data = event.dataTransfer.getData("text/plain");
+  if (!data) return;
+  try {
+    const dragData = JSON.parse(data);
+    if (dragData.kind === "member" && dragData.serverId === serverId && dragData.sourceChannelId !== channelId) {
+      await moveMemberToChannel(serverId, dragData.userId, channelId, dragData.username);
+    }
+  } catch {
+    // Ignore invalid drag data
   }
 }
 
@@ -4073,6 +4096,8 @@ function enableServerLayoutDragging(channelList, server) {
   });
   channelList.addEventListener("dragover", (event) => {
     if (!draggedLayoutItem || draggedLayoutItem.serverId !== server.id) return;
+    // Ignore member drag events
+    if (draggedLayoutItem.kind === "member") return;
     const target = event.target.closest(".channel-entry, .channel-category");
     if (!target || target.classList.contains("is-dragging")) return;
     event.preventDefault();
@@ -4082,6 +4107,8 @@ function enableServerLayoutDragging(channelList, server) {
   });
   channelList.addEventListener("drop", (event) => {
     if (!draggedLayoutItem || draggedLayoutItem.serverId !== server.id) return;
+    // Ignore member drag events
+    if (draggedLayoutItem.kind === "member") return;
     const targetEntry = event.target.closest(".channel-entry");
     const targetCategory = targetEntry?.closest(".channel-category") ||
       event.target.closest(".channel-category");
