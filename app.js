@@ -4037,8 +4037,21 @@ function enableServerLayoutDragging(channelList, server) {
   });
   channelList.addEventListener("dragover", (event) => {
     if (!draggedLayoutItem || draggedLayoutItem.serverId !== server.id) return;
-    // Ignore member drag events
-    if (draggedLayoutItem.kind === "member") return;
+    // Handle member drag: allow drop on voice channel entries
+    if (draggedLayoutItem.kind === "member") {
+      const channelEntry = event.target.closest(".channel-entry");
+      if (channelEntry) {
+        const channelButton = channelEntry.querySelector(".voice-channel-button");
+        if (channelButton) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          channelList.querySelectorAll(".is-drop-target").forEach((item) => item.classList.remove("is-drop-target"));
+          channelEntry.classList.add("is-drop-target");
+        }
+      }
+      return;
+    }
+    // Handle channel/category drag
     const target = event.target.closest(".channel-entry, .channel-category");
     if (!target || target.classList.contains("is-dragging")) return;
     event.preventDefault();
@@ -4048,7 +4061,26 @@ function enableServerLayoutDragging(channelList, server) {
   });
   channelList.addEventListener("drop", (event) => {
     if (!draggedLayoutItem || draggedLayoutItem.serverId !== server.id) return;
-    // Ignore member drag events
+    // Handle member drop on voice channel entry
+    if (draggedLayoutItem.kind === "member") {
+      const channelEntry = event.target.closest(".channel-entry");
+      if (channelEntry) {
+        const channelButton = channelEntry.querySelector(".voice-channel-button");
+        if (channelButton) {
+          event.preventDefault();
+          const channelId = channelEntry.dataset.channelId;
+          const list = channelEntry.querySelector(".channel-participants");
+          if (list) {
+            list.classList.remove("is-drop-target");
+          }
+          channelEntry.classList.remove("is-drop-target");
+          moveMemberToChannel(server.id, draggedLayoutItem.userId, channelId, draggedLayoutItem.username);
+        }
+      }
+      draggedLayoutItem = undefined;
+      return;
+    }
+    // Ignore channel/category drop for member drag
     if (draggedLayoutItem.kind === "member") return;
     const targetEntry = event.target.closest(".channel-entry");
     const targetCategory = targetEntry?.closest(".channel-category") ||
