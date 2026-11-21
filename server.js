@@ -2822,26 +2822,12 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       return;
     }
     if (request.method === "GET" && requestUrl.pathname === "/download-client") {
-      // Serve the bundled release directly from our own domain.
-      const bundledSetup = path.join(__dirname, "downloads", "VC-Setup.exe");
-      const storedSetup = path.join(process.env.DATA_DIR || path.join(__dirname, "data"), "downloads", "VC-Setup.exe");
-      const setupPath = fs.existsSync(bundledSetup) ? bundledSetup : storedSetup;
-      fs.stat(setupPath, (error, stats) => {
-        if (error || !stats.isFile()) {
-          response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }).end("VC istemci kurulum dosyası henüz yüklenmedi. Lütfen daha sonra tekrar deneyin.");
-          return;
-        }
-        response.writeHead(200, {
-          "Content-Type": "application/octet-stream",
-          "Content-Disposition": 'attachment; filename="VC-Setup.exe"',
-          "Content-Length": stats.size,
-          "Cache-Control": "no-store",
-          "X-Content-Type-Options": "nosniff",
-        });
-        const stream = fs.createReadStream(setupPath);
-        stream.on("error", () => response.destroy());
-        stream.pipe(response);
+      // Redirect to GitHub Releases for the latest installer
+      response.writeHead(302, {
+        Location: "https://github.com/keroyasar16/vc-web1/releases/latest/download/VC-Setup.exe",
+        "Cache-Control": "no-store"
       });
+      response.end();
       return;
     }
     if (requestUrl.pathname.startsWith("/api/")) {
