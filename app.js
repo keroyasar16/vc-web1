@@ -3869,15 +3869,7 @@ function renderChannelParticipants(list, server, channel) {
       });
     }
 
-    // Add right-click context menu for move members
-    if (canMoveMembers && member.id && !member.id.startsWith("guest:") && member.id !== accountUser?.id) {
-      participant.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        event.stopPropagation(); // Prevent other context menus
-        showMemberMoveContextMenu(member, server, channel, event.clientX, event.clientY);
-      });
-    }
-
+    
     const avatar = document.createElement("span");
     avatar.className = "channel-participant-avatar";
     setAvatar(avatar, member.avatar ? { avatar: member.avatar, username: name } : serverMembers.find((user) => user.id === member.id) || { username: name });
@@ -3959,72 +3951,6 @@ async function handleParticipantDrop(event) {
   } catch {
     // Ignore invalid drag data
   }
-}
-
-function showMemberMoveContextMenu(member, server, currentChannel, x, y) {
-  // Remove any existing context menu
-  const existingMenu = document.querySelector(".member-move-context-menu");
-  if (existingMenu) existingMenu.remove();
-
-  // Get all voice channels in the server (excluding the current one)
-  const voiceChannels = server.channels
-    .filter((c) => c.type === "voice" && c.id !== currentChannel.id);
-
-  if (voiceChannels.length === 0) {
-    showToast("Taşınabilecek ses kanalı yok.");
-    return;
-  }
-
-  const menu = document.createElement("div");
-  menu.className = "member-move-context-menu";
-  menu.style.left = `${x}px`;
-  menu.style.top = `${y}px`;
-
-  const createMenuItem = (label, icon, onClick, disabled = false) => {
-    const item = document.createElement("button");
-    item.type = "button";
-    item.className = "context-menu-item";
-    if (disabled) item.disabled = true;
-    item.innerHTML = `<span class="context-menu-icon">${icon}</span><span>${label}</span>`;
-    item.addEventListener("click", () => {
-      menu.remove();
-      onClick();
-    });
-    return item;
-  };
-
-  // Header
-  const header = document.createElement("div");
-  header.className = "context-menu-header";
-  header.innerHTML = `<span>⤴ Taşı</span><small>${member.username}</small>`;
-  menu.append(header);
-
-  menu.append(document.createElement("hr"));
-
-  // Channel options
-  for (const targetChannel of voiceChannels) {
-    menu.append(createMenuItem(targetChannel.name, "◖", async () => {
-      await moveMemberToChannel(server.id, member.id, targetChannel.id, member.username);
-    }));
-  }
-
-  document.body.append(menu);
-
-  // Close menu on click outside
-  const closeMenu = (event) => {
-    if (!menu.contains(event.target)) {
-      menu.remove();
-      document.removeEventListener("click", closeMenu);
-      document.removeEventListener("keydown", closeMenu);
-    }
-  };
-  document.addEventListener("click", closeMenu);
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      menu.remove();
-      document.removeEventListener("click", closeMenu);
-    }
-  });
 }
 
 function updateServerMemberPresence(message) {
@@ -4913,6 +4839,44 @@ function showMemberContextMenu(target, x, y) {
   if (server && target.isServerMember && target.userId && !targetIsSelf && server.canManageRoles) {
     addSeparator();
     addItem("Roller", () => openServerRoles(server, target.userId));
+  }
+  // Add "Taşı" (Move) option for voice channel members
+  if (server && target.isServerMember && target.userId && !targetIsSelf && server.canMoveMembers && voiceActive && currentServer?.id === server.id) {
+    const voiceParticipant = serverVoiceParticipants.find((p) => p.id === target.userId);
+    if (voiceParticipant && voiceParticipant.channelId) {
+      addSeparator();
+      const voiceChannels = server.channels.filter((c) => c.type === "voice" && c.id !== voiceParticipant.channelId);
+      if (voiceChannels.length > 0) {
+        const moveSubmenu = document.createElement("div");
+        moveSubmenu.className = "member-context-menu-submenu";
+        const moveButton = document.createElement("button");
+        moveButton.type = "button";
+        moveButton.className = "has-submenu";
+        moveButton.setAttribute("role", "menuitem");
+        moveButton.innerHTML = `⤴ Taşı <span class="submenu-arrow">▸</span>`;
+        const submenuList = document.createElement("div");
+        submenuList.className = "submenu-list";
+        submenuList.setAttribute("role", "menu");
+        for (const vc of voiceChannels) {
+          const item = document.createElement("button");
+          item.type = "button";
+          item.setAttribute("role", "menuitem");
+          item.textContent = vc.name;
+          item.addEventListener("click", () => {
+            closeMemberContextMenu();
+            moveMemberToChannel(server.id, target.userId, vc.id, target.username);
+          });
+          submenuList.append(item);
+        }
+        moveButton.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const isOpen = moveButton.classList.toggle("submenu-open");
+          submenuList.style.display = isOpen ? "block" : "none";
+        });
+        moveSubmenu.append(moveButton, submenuList);
+        document.querySelector(".member-context-menu").append(moveSubmenu);
+      }
+    }
   }
   if (server && target.isServerMember && target.userId && !targetIsSelf &&
     (server.canManageRoles || server.canManageNicknames || server.canKickMembers || server.canBanMembers)) {
