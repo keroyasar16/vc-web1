@@ -1729,7 +1729,7 @@ body {
 .vc-window-controls {
   position: fixed;
   top: 8px;
-  right: 140px; /* "Client'ı İndir" butonu için boşluk bırak */
+  right: 8px; /* Sağ üst köşe, kenardan 8px */
   display: flex;
   align-items: center;
   gap: 2px;
