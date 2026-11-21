@@ -1,6 +1,6 @@
 {
   "name": "vc",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Masaüstü uygulaması ile sesli oda ve ekran paylaşımı",
   "main": "main.js",
@@ -33,7 +33,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "desktop-icons/vc.ico"
@@ -57,7 +59,9 @@
       {
         "from": "data",
         "to": "data",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "publish": {
