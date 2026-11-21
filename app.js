@@ -4889,12 +4889,19 @@ function showMemberContextMenu(target, x, y) {
     addItem("Yasaklı Üyeleri Yönet", () => openBannedMembers(server));
   }
   document.body.append(menu);
-  // Force layout to measure correctly with submenu
+  // Position at click first, then adjust if off-screen
   requestAnimationFrame(() => {
+    // Initial position at click
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+
+    // Now measure and clamp to viewport
     const bounds = menu.getBoundingClientRect();
+    let left = Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8));
+    let top = Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8));
+
     // Check if submenu would go off-screen to the right
     const submenu = menu.querySelector(".member-context-menu-submenu");
-    let left = Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8));
     if (submenu) {
       const submenuBounds = submenu.getBoundingClientRect();
       const submenuRight = left + bounds.width + submenuBounds.width;
@@ -4906,8 +4913,9 @@ function showMemberContextMenu(target, x, y) {
         submenu.style.marginRight = "4px";
       }
     }
+
     menu.style.left = `${left}px`;
-    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8))}px`;
+    menu.style.top = `${top}px`;
     menu.querySelector("button")?.focus();
   });
 }

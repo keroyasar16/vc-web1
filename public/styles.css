@@ -1358,7 +1358,6 @@ body {
 .member-context-menu button.is-danger:focus-visible { background: #5b3035; color: #ffb6b8; }
 .member-context-separator { height: 1px; margin: 5px 2px; background: #35363c; }
 
-.member-context-menu { position: relative; }
 .member-context-menu .has-submenu { display: flex; justify-content: space-between; align-items: center; width: 100%; }
 .member-context-menu .submenu-arrow { font-size: 10px; color: #949ba4; }
 .member-context-menu .has-submenu.submenu-open .submenu-arrow { transform: rotate(90deg); }
