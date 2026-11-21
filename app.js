@@ -3290,8 +3290,106 @@ function showServerContextMenu(server, x, y) {
 }
 
 function showServerNotificationSettings(server) {
-  // For now, just show a toast. In a full implementation, this would open a settings dialog.
-  showToast(`“${server.name}” için bildirim ayarları henüz uygulanmadı.`);
+  // Remove any existing dialog
+  const existingDialog = document.querySelector("#server-notification-settings-dialog");
+  if (existingDialog) existingDialog.remove();
+
+  const dialog = document.createElement("dialog");
+  dialog.id = "server-notification-settings-dialog";
+  dialog.className = "create-server-dialog server-notification-settings-dialog";
+  dialog.setAttribute("aria-labelledby", "notification-settings-title");
+
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "dialog-close";
+  closeButton.textContent = "×";
+  closeButton.setAttribute("aria-label", "Kapat");
+  closeButton.addEventListener("click", () => dialog.close());
+
+  const title = document.createElement("h2");
+  title.id = "notification-settings-title";
+  title.textContent = `Bildirim Ayarları · ${server.name}`;
+
+  const content = document.createElement("div");
+  content.className = "notification-settings-content";
+
+  // Notification level options
+  const levels = [
+    { value: "all", label: "Tüm Mesajlar", desc: "Bu sunucudaki tüm mesajlardan bildirim al" },
+    { value: "mentions", label: "Sadece @Bahsetmeler", desc: "Sadece senden bahsedildiğinde bildirim al" },
+    { value: "none", label: "Hiçbiri", desc: "Bu sunucudan hiç bildirim alma" },
+  ];
+
+  // Get current setting (from localStorage)
+  const currentSetting = localStorage.getItem(`oda.notifications.${server.id}`) || "mentions";
+
+  for (const level of levels) {
+    const option = document.createElement("label");
+    option.className = "notification-level-option";
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "notification-level";
+    radio.value = level.value;
+    radio.checked = level.value === currentSetting;
+    radio.addEventListener("change", async () => {
+      localStorage.setItem(`oda.notifications.${server.id}`, level.value);
+      showToast(`Bildirim ayarı: ${level.label}`);
+    });
+    const label = document.createElement("span");
+    label.className = "notification-level-label";
+    label.innerHTML = `<strong>${level.label}</strong><small>${level.desc}</small>`;
+    option.append(radio, label);
+    content.append(option);
+  }
+
+  // Additional options
+  const suppressRole = document.createElement("label");
+  suppressRole.className = "notification-level-option checkbox-option";
+  const suppressCheckbox = document.createElement("input");
+  suppressCheckbox.type = "checkbox";
+  suppressCheckbox.checked = localStorage.getItem(`oda.suppress-role.${server.id}`) === "true";
+  suppressCheckbox.addEventListener("change", () => {
+    localStorage.setItem(`oda.suppress-role.${server.id}`, suppressCheckbox.checked.toString());
+    showToast(suppressCheckbox.checked ? "@rol bildirimleri gizlendi" : "@rol bildirimleri göster");
+  });
+  const suppressLabel = document.createElement("span");
+  suppressLabel.className = "notification-level-label";
+  suppressLabel.innerHTML = `<strong>@rol ve @everyone/@here bildirimlerini gizle</strong><small>Bu sunucudaki rol ve everyone/here etiketlerini yok say</small>`;
+  suppressRole.append(suppressCheckbox, suppressLabel);
+  content.append(suppressRole);
+
+  const suppressAll = document.createElement("label");
+  suppressAll.className = "notification-level-option checkbox-option";
+  const suppressAllCheckbox = document.createElement("input");
+  suppressAllCheckbox.type = "checkbox";
+  suppressAllCheckbox.checked = localStorage.getItem(`oda.suppress-all.${server.id}`) === "true";
+  suppressAllCheckbox.addEventListener("change", () => {
+    localStorage.setItem(`oda.suppress-all.${server.id}`, suppressAllCheckbox.checked.toString());
+    showToast(suppressAllCheckbox.checked ? "Tüm bildirimler gizlendi" : "Tüm bildirimler göster");
+  });
+  const suppressAllLabel = document.createElement("span");
+  suppressAllLabel.className = "notification-level-label";
+  suppressAllLabel.innerHTML = `<strong>Tüm bildirimleri gizle</strong><small>Bu sunucudan hiç bildirim almazsın (üstteki ayarı ezer)</small>`;
+  suppressAll.append(suppressAllCheckbox, suppressAllLabel);
+  content.append(suppressAll);
+
+  const actions = document.createElement("div");
+  actions.className = "dialog-actions";
+  const doneButton = document.createElement("button");
+  doneButton.type = "button";
+  doneButton.className = "primary-button";
+  doneButton.textContent = "Tamam";
+  doneButton.addEventListener("click", () => dialog.close());
+  actions.append(doneButton);
+
+  dialog.append(closeButton, title, content, actions);
+  document.body.append(dialog);
+
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+  dialog.addEventListener("close", () => dialog.remove(), { once: true });
+  dialog.showModal();
 }
 
 document.querySelector("#leave-selected-server").addEventListener("click", async (event) => {
@@ -3770,6 +3868,14 @@ function renderChannelParticipants(list, server, channel) {
       });
     }
 
+    // Add right-click context menu for move members
+    if (canMoveMembers && member.id && !member.id.startsWith("guest:") && member.id !== accountUser?.id) {
+      participant.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        showMemberMoveContextMenu(member, server, channel, event.clientX, event.clientY);
+      });
+    }
+
     const avatar = document.createElement("span");
     avatar.className = "channel-participant-avatar";
     setAvatar(avatar, member.avatar ? { avatar: member.avatar, username: name } : serverMembers.find((user) => user.id === member.id) || { username: name });
@@ -3830,6 +3936,72 @@ function renderChannelParticipants(list, server, channel) {
       }
     });
   }
+}
+
+function showMemberMoveContextMenu(member, server, currentChannel, x, y) {
+  // Remove any existing context menu
+  const existingMenu = document.querySelector(".member-move-context-menu");
+  if (existingMenu) existingMenu.remove();
+
+  // Get all voice channels in the server (excluding the current one)
+  const voiceChannels = server.channels
+    .filter((c) => c.type === "voice" && c.id !== currentChannel.id);
+
+  if (voiceChannels.length === 0) {
+    showToast("Taşınabilecek ses kanalı yok.");
+    return;
+  }
+
+  const menu = document.createElement("div");
+  menu.className = "member-move-context-menu";
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+
+  const createMenuItem = (label, icon, onClick, disabled = false) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "context-menu-item";
+    if (disabled) item.disabled = true;
+    item.innerHTML = `<span class="context-menu-icon">${icon}</span><span>${label}</span>`;
+    item.addEventListener("click", () => {
+      menu.remove();
+      onClick();
+    });
+    return item;
+  };
+
+  // Header
+  const header = document.createElement("div");
+  header.className = "context-menu-header";
+  header.innerHTML = `<span>⤴ Taşı</span><small>${member.username}</small>`;
+  menu.append(header);
+
+  menu.append(document.createElement("hr"));
+
+  // Channel options
+  for (const targetChannel of voiceChannels) {
+    menu.append(createMenuItem(targetChannel.name, "◖", async () => {
+      await moveMemberToChannel(server.id, member.id, targetChannel.id, member.username);
+    }));
+  }
+
+  document.body.append(menu);
+
+  // Close menu on click outside
+  const closeMenu = (event) => {
+    if (!menu.contains(event.target)) {
+      menu.remove();
+      document.removeEventListener("click", closeMenu);
+      document.removeEventListener("keydown", closeMenu);
+    }
+  };
+  document.addEventListener("click", closeMenu);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      menu.remove();
+      document.removeEventListener("click", closeMenu);
+    }
+  });
 }
 
 function updateServerMemberPresence(message) {
