@@ -49,14 +49,24 @@ const renameForm = document.querySelector("#rename-form");
 const serverSettingsDialog = document.querySelector("#server-settings-dialog");
 const serverSettingsForm = document.querySelector("#server-settings-form");
 
-// Custom window controls (Electron only)
-const vcWindowControls = document.querySelector("#vc-window-controls");
-const vcWinMin = document.querySelector("#vc-win-min");
-const vcWinMax = document.querySelector("#vc-win-max");
-const vcWinClose = document.querySelector("#vc-win-close");
+// Custom window controls (Electron only) - queried inside init function
+let vcWindowControls;
+let vcWinMin;
+let vcWinMax;
+let vcWinClose;
+
+function queryWindowControls() {
+  vcWindowControls = document.getElementById("vc-window-controls");
+  vcWinMin = document.getElementById("vc-win-min");
+  vcWinMax = document.getElementById("vc-win-max");
+  vcWinClose = document.getElementById("vc-win-close");
+}
 
 function initWindowControls() {
   console.log('[VC] initWindowControls called');
+
+  // Query elements NOW (DOM is ready)
+  queryWindowControls();
 
   // Detect Electron - userAgent is 100% reliable
   const isElectron = /Electron/.test(navigator.userAgent);
