@@ -1727,14 +1727,17 @@ body {
 
 /* Custom window controls (Electron title bar) */
 .vc-window-controls {
+  position: fixed;
+  top: 8px;
+  right: 8px;
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-left: 12px;
   padding: 2px 4px;
   background: rgba(255,255,255,.03);
   border-radius: 8px;
   border: 1px solid rgba(255,255,255,.05);
+  z-index: 9999;
 }
 .vc-win-btn {
   display: flex;
