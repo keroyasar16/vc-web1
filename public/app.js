@@ -2008,7 +2008,7 @@ function showAccount() {
   friendsView.hidden = true;
   dmView.hidden = true;
   document.querySelector("#friends-sidebar").hidden = true;
-  topbar.hidden = true;
+  topbar.hidden = false;
   authOptions.hidden = true;
   document.querySelector("#account-name").textContent = accountUser.username;
   setAvatar(document.querySelector("#account-avatar"), accountUser);
