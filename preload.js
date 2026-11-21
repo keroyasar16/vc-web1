@@ -14,4 +14,16 @@ contextBridge.exposeInMainWorld('vcDesktop', {
       return () => ipcRenderer.removeAllListeners('vc-update-status');
     },
   },
+
+  // Pencere kontrolleri (Custom title bar)
+  window: {
+    minimize: () => ipcRenderer.send('vc:window-minimize'),
+    maximize: () => ipcRenderer.send('vc:window-maximize'),
+    close: () => ipcRenderer.send('vc:window-close'),
+    isMaximized: () => ipcRenderer.invoke('vc:window-is-maximized'),
+    onStateChange: (callback) => {
+      ipcRenderer.on('vc:window-state', (_event, data) => callback(data));
+      return () => ipcRenderer.removeAllListeners('vc:window-state');
+    },
+  },
 });

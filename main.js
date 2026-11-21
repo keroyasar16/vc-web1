@@ -47,6 +47,33 @@ function sendToRenderer(channel, data) {
   }
 }
 
+// ==================== WINDOW CONTROLS (Custom title bar) ====================
+ipcMain.on('vc:window-minimize', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.minimize();
+});
+
+ipcMain.on('vc:window-maximize', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMaximized()) mainWindow.unmaximize();
+    else mainWindow.maximize();
+  }
+});
+
+ipcMain.on('vc:window-close', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+});
+
+ipcMain.handle('vc:window-is-maximized', () => {
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow.isMaximized() : false;
+});
+
+// Send maximized state changes to renderer
+function registerWindowStateEvents() {
+  if (!mainWindow) return;
+  mainWindow.on('maximize', () => sendToRenderer('vc:window-state', { maximized: true }));
+  mainWindow.on('unmaximize', () => sendToRenderer('vc:window-state', { maximized: false }));
+}
+
 // ==================== SCREEN PICKER (Masaüstü özel) ====================
 function registerScreenPicker() {
   ipcMain.handle('vc:get-screen-sources', async () => {
@@ -209,16 +236,13 @@ function createWindow() {
       sandbox: false,
     },
     titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#1b1d24',
-      symbolColor: '#f3f1ec',
-      height: 36,
-    },
+    titleBarOverlay: false,
     show: false,
     backgroundColor: '#1b1d24',
   });
 
   registerScreenPicker();
+  registerWindowStateEvents();
 
   // Yükleme hatalarını yakala (sadece yerel modda)
   if (USE_LOCAL_SERVER) {
