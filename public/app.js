@@ -3854,18 +3854,20 @@ function renderChannelParticipants(list, server, channel) {
       participant.draggable = true;
       participant.addEventListener("dragstart", (event) => {
         event.stopPropagation(); // Prevent channel drag handler from intercepting
-        event.dataTransfer.effectAllowed = "move";
-        event.dataTransfer.setData("text/plain", JSON.stringify({
+        draggedLayoutItem = {
           kind: "member",
           userId: member.id,
           username: member.username,
           sourceChannelId: channel.id,
           serverId: server.id,
-        }));
+        };
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", JSON.stringify(draggedLayoutItem));
         participant.classList.add("is-dragging");
       });
       participant.addEventListener("dragend", () => {
         participant.classList.remove("is-dragging");
+        draggedLayoutItem = undefined;
       });
     }
 
@@ -3906,65 +3908,6 @@ function renderChannelParticipants(list, server, channel) {
       if (badge) attachVcSharePreview(badge, participantId, name, server, channel);
     }
     list.append(participant);
-  }
-
-  // Add drop zone for moving members between voice channels
-  // Remove existing listeners first to avoid duplicates
-  list.removeEventListener("dragover", handleParticipantDragOver);
-  list.removeEventListener("dragleave", handleParticipantDragLeave);
-  list.removeEventListener("drop", handleParticipantDrop);
-
-  if (canMoveMembers) {
-    list.addEventListener("dragover", handleParticipantDragOver);
-    list.addEventListener("dragleave", handleParticipantDragLeave);
-    list.addEventListener("drop", handleParticipantDrop);
-  }
-}
-
-// Named handler functions for proper removal
-function handleParticipantDragOver(event) {
-  const list = event.currentTarget;
-  const serverId = list.dataset.serverId;
-  const channelId = list.dataset.channelId;
-  const data = event.dataTransfer.getData("text/plain");
-  if (!data) return;
-  try {
-    const dragData = JSON.parse(data);
-    if (dragData.kind === "member" && dragData.serverId === serverId && dragData.sourceChannelId !== channelId) {
-      event.preventDefault();
-      event.stopPropagation(); // Prevent channel drag handler
-      event.dataTransfer.dropEffect = "move";
-      list.classList.add("is-drop-target");
-    }
-  } catch {
-    // Ignore invalid drag data
-  }
-}
-
-function handleParticipantDragLeave(event) {
-  const list = event.currentTarget;
-  // Only remove drop target if leaving the list entirely
-  if (!list.contains(event.relatedTarget)) {
-    list.classList.remove("is-drop-target");
-  }
-}
-
-async function handleParticipantDrop(event) {
-  event.preventDefault();
-  event.stopPropagation(); // Prevent channel drag handler
-  const list = event.currentTarget;
-  list.classList.remove("is-drop-target");
-  const serverId = list.dataset.serverId;
-  const channelId = list.dataset.channelId;
-  const data = event.dataTransfer.getData("text/plain");
-  if (!data) return;
-  try {
-    const dragData = JSON.parse(data);
-    if (dragData.kind === "member" && dragData.serverId === serverId && dragData.sourceChannelId !== channelId) {
-      await moveMemberToChannel(serverId, dragData.userId, channelId, dragData.username);
-    }
-  } catch {
-    // Ignore invalid drag data
   }
 }
 
@@ -4946,10 +4889,27 @@ function showMemberContextMenu(target, x, y) {
     addItem("Yasaklı Üyeleri Yönet", () => openBannedMembers(server));
   }
   document.body.append(menu);
-  const bounds = menu.getBoundingClientRect();
-  menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8))}px`;
-  menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8))}px`;
-  menu.querySelector("button")?.focus();
+  // Force layout to measure correctly with submenu
+  requestAnimationFrame(() => {
+    const bounds = menu.getBoundingClientRect();
+    // Check if submenu would go off-screen to the right
+    const submenu = menu.querySelector(".member-context-menu-submenu");
+    let left = Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8));
+    if (submenu) {
+      const submenuBounds = submenu.getBoundingClientRect();
+      const submenuRight = left + bounds.width + submenuBounds.width;
+      if (submenuRight > window.innerWidth - 8) {
+        // Open submenu to the left instead
+        submenu.style.left = "auto";
+        submenu.style.right = "100%";
+        submenu.style.marginLeft = "0";
+        submenu.style.marginRight = "4px";
+      }
+    }
+    menu.style.left = `${left}px`;
+    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8))}px`;
+    menu.querySelector("button")?.focus();
+  });
 }
 
 async function moderateServerMember(server, target, action) {
