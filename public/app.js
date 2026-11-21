@@ -3869,7 +3869,22 @@ function renderChannelParticipants(list, server, channel) {
       });
     }
 
-    
+    // Add right-click context menu for channel participants
+    if (member.id && !member.id.startsWith("guest:") && member.id !== accountUser?.id) {
+      participant.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const target = {
+          userId: member.id,
+          username: member.username,
+          clientId: member.clientId,
+          server: server,
+          isServerMember: true,
+        };
+        showMemberContextMenu(target, event.clientX, event.clientY);
+      });
+    }
+
     const avatar = document.createElement("span");
     avatar.className = "channel-participant-avatar";
     setAvatar(avatar, member.avatar ? { avatar: member.avatar, username: name } : serverMembers.find((user) => user.id === member.id) || { username: name });
