@@ -3151,8 +3151,147 @@ function renderGuildServers() {
     button.addEventListener("click", () => {
       showServerNavigation(server);
     });
+    button.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      showServerContextMenu(server, event.clientX, event.clientY);
+    });
     guildList.append(button);
   }
+}
+
+function showServerContextMenu(server, x, y) {
+  // Remove any existing context menu
+  const existingMenu = document.querySelector(".server-context-menu");
+  if (existingMenu) existingMenu.remove();
+
+  const menu = document.createElement("div");
+  menu.className = "server-context-menu";
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+
+  const createMenuItem = (label, icon, onClick, disabled = false, danger = false) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "context-menu-item";
+    if (disabled) item.disabled = true;
+    if (danger) item.classList.add("danger");
+    item.innerHTML = `<span class="context-menu-icon">${icon}</span><span>${label}</span>`;
+    item.addEventListener("click", () => {
+      menu.remove();
+      onClick();
+    });
+    return item;
+  };
+
+  // Sunucu ayarları
+  if (server.canManage) {
+    menu.append(createMenuItem("Sunucu Ayarları", "⚙", () => {
+      selectedServer = server;
+      openServerSettings();
+    }));
+  }
+
+  // Roller ve yetkiler
+  if (server.canManageRoles) {
+    menu.append(createMenuItem("Roller ve Yetkiler", "♙", () => {
+      selectedServer = server;
+      openServerRoles();
+    }));
+  }
+
+  // Davet kodu oluştur
+  if (server.canCreateInvite) {
+    menu.append(createMenuItem("Davet Kodu Oluştur", "↗", async () => {
+      selectedServer = server;
+      try {
+        const result = await apiRequest(`/api/servers/${server.id}/invite`, { method: "POST" });
+        servers.set(result.server.id, result.server);
+        selectedServer = result.server;
+        renderServers();
+        await copyServerInvite(result.server);
+      } catch (error) {
+        showToast(error.message);
+      }
+    }));
+  }
+
+  menu.append(document.createElement("hr"));
+
+  // Bildirim ayarları
+  menu.append(createMenuItem("Bildirim Ayarları", "🔔", () => {
+    selectedServer = server;
+    showServerNotificationSettings(server);
+  }));
+
+  menu.append(document.createElement("hr"));
+
+  // Sunucudan ayrıl (not owner)
+  if (!server.canDelete && accountUser) {
+    menu.append(createMenuItem("Sunucudan Ayrıl", "⇥", async () => {
+      if (!await vcConfirm(`“${server.name}” sunucusundan ayrılmak istiyor musun?`, { title: "Sunucudan ayrıl", confirmText: "Ayrıl", tone: "danger" })) return;
+      try {
+        await apiRequest(`/api/servers/${server.id}/leave`, { method: "POST" });
+        if (currentServer?.id === server.id) leaveRoom();
+        if (activeChat?.server?.id === server.id) {
+          closeChatConnection();
+          activeChat = undefined;
+          chatView.hidden = true;
+          dashboardContent.hidden = false;
+        }
+        servers.delete(server.id);
+        if (selectedServer?.id === server.id) selectedServer = undefined;
+        renderServers();
+        if (selectedServer) showServerNavigation(selectedServer);
+        else document.querySelector(".workspace-location span:last-child").textContent = "Sunucuların";
+        showToast("Sunucudan ayrıldın");
+      } catch (error) { showToast(error.message); }
+    }));
+  }
+
+  // Sunucuyu sil (owner only)
+  if (server.canDelete) {
+    menu.append(createMenuItem("Sunucuyu Sil", "🗑", async () => {
+      if (!await vcConfirm(`“${server.name}” sunucusu ve tüm kanalları/mesajları kalıcı olarak silinecek. Bu işlem geri alınamaz.`, { title: "Sunucu silinsin mi?", confirmText: "Sunucuyu sil", tone: "danger" })) return;
+      try {
+        await apiRequest(`/api/servers/${server.id}`, { method: "DELETE" });
+        if (currentServer?.id === server.id) leaveRoom();
+        if (activeChat?.server?.id === server.id) {
+          closeChatConnection();
+          activeChat = undefined;
+          chatView.hidden = true;
+          dashboardContent.hidden = false;
+        }
+        servers.delete(server.id);
+        if (selectedServer?.id === server.id) selectedServer = undefined;
+        if (currentServer?.id === server.id) currentServer = undefined;
+        renderServers();
+        showToast("Sunucu ve içeriği silindi");
+      } catch (error) { showToast(error.message); }
+    }, false, true));
+  }
+
+  document.body.append(menu);
+
+  // Close menu on click outside
+  const closeMenu = (event) => {
+    if (!menu.contains(event.target)) {
+      menu.remove();
+      document.removeEventListener("click", closeMenu);
+      document.removeEventListener("keydown", closeMenu);
+    }
+  };
+  document.addEventListener("click", closeMenu);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      menu.remove();
+      document.removeEventListener("click", closeMenu);
+    }
+  });
+}
+
+function showServerNotificationSettings(server) {
+  // For now, just show a toast. In a full implementation, this would open a settings dialog.
+  showToast(`“${server.name}” için bildirim ayarları henüz uygulanmadı.`);
 }
 
 document.querySelector("#leave-selected-server").addEventListener("click", async (event) => {
@@ -3595,6 +3734,10 @@ function renderChannelParticipants(list, server, channel) {
   // The server snapshot is authoritative. Never resurrect peers from stale local maps.
   const visibleParticipants = participants;
   list.hidden = visibleParticipants.length === 0;
+
+  // Check if current user can move members in this server
+  const canMoveMembers = server.canMoveMembers && selectedServer?.id === server.id;
+
   for (const member of visibleParticipants) {
     const participantId = member.clientId;
     const name = member.username;
@@ -3607,6 +3750,26 @@ function renderChannelParticipants(list, server, channel) {
     participant.classList.toggle("is-ignored", ignoredUserIds.has(member.id || `guest:${participantId}`));
     participant.classList.toggle("is-speaking", speakingParticipants.has(participantId) ||
       (participantId === clientId && speakingParticipants.has("self")));
+
+    // Add drag-and-drop for members if user has move_members permission
+    if (canMoveMembers && member.id && !member.id.startsWith("guest:") && member.id !== accountUser?.id) {
+      participant.draggable = true;
+      participant.addEventListener("dragstart", (event) => {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", JSON.stringify({
+          kind: "member",
+          userId: member.id,
+          username: member.username,
+          sourceChannelId: channel.id,
+          serverId: server.id,
+        }));
+        participant.classList.add("is-dragging");
+      });
+      participant.addEventListener("dragend", () => {
+        participant.classList.remove("is-dragging");
+      });
+    }
+
     const avatar = document.createElement("span");
     avatar.className = "channel-participant-avatar";
     setAvatar(avatar, member.avatar ? { avatar: member.avatar, username: name } : serverMembers.find((user) => user.id === member.id) || { username: name });
@@ -3628,6 +3791,44 @@ function renderChannelParticipants(list, server, channel) {
       if (badge) attachVcSharePreview(badge, participantId, name, server, channel);
     }
     list.append(participant);
+  }
+
+  // Add drop zone for moving members between voice channels
+  if (canMoveMembers) {
+    list.addEventListener("dragover", (event) => {
+      const data = event.dataTransfer.getData("text/plain");
+      if (!data) return;
+      try {
+        const dragData = JSON.parse(data);
+        if (dragData.kind === "member" && dragData.serverId === server.id && dragData.sourceChannelId !== channel.id) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "move";
+          list.classList.add("is-drop-target");
+        }
+      } catch {
+        // Ignore invalid drag data
+      }
+    });
+    list.addEventListener("dragleave", (event) => {
+      // Only remove drop target if leaving the list entirely
+      if (!list.contains(event.relatedTarget)) {
+        list.classList.remove("is-drop-target");
+      }
+    });
+    list.addEventListener("drop", async (event) => {
+      event.preventDefault();
+      list.classList.remove("is-drop-target");
+      const data = event.dataTransfer.getData("text/plain");
+      if (!data) return;
+      try {
+        const dragData = JSON.parse(data);
+        if (dragData.kind === "member" && dragData.serverId === server.id && dragData.sourceChannelId !== channel.id) {
+          await moveMemberToChannel(server.id, dragData.userId, channel.id, dragData.username);
+        }
+      } catch {
+        // Ignore invalid drag data
+      }
+    });
   }
 }
 
@@ -4552,6 +4753,24 @@ async function moderateServerMember(server, target, action) {
     renderServerMembers();
     renderServers();
     showToast(action === "ban" ? `${target.username} sunucudan yasaklandı` : `${target.username} sunucudan çıkarıldı`);
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function moveMemberToChannel(serverId, userId, targetChannelId, username) {
+  try {
+    await apiRequest(`/api/servers/${serverId}/members/${userId}/move`, {
+      method: "POST",
+      body: { channelId: targetChannelId },
+    });
+    // Update local voice participants to reflect the move immediately
+    const participant = serverVoiceParticipants.find((p) => p.id === userId);
+    if (participant) {
+      participant.channelId = targetChannelId;
+    }
+    renderServers();
+    showToast(`${username} "${targetChannelId}" kanalına taşındı`);
   } catch (error) {
     showToast(error.message);
   }

@@ -39,6 +39,10 @@ const SERVER_PERMISSION_DEFINITIONS = {
     name: "Davet Oluştur",
     description: "Sunucuya katılmak için yeni davet bağlantısı oluşturmaya izin verir.",
   },
+  move_members: {
+    name: "Üyeleri Taşı",
+    description: "Üyeleri ses kanalları arasında taşıma yetkisi verir.",
+  },
 };
 const CHANNEL_PERMISSION_DEFINITIONS = {
   view_channel: {
@@ -70,6 +74,11 @@ const CHANNEL_PERMISSION_DEFINITIONS = {
     name: "Mesaj Gönder",
     description: "Üyelerin bu kanala ait sohbet kanalında mesaj göndermesini sağlar.",
     category: "Metin Kanalı İzinleri",
+  },
+  move_members: {
+    name: "Üyeleri Taşı",
+    description: "Üyeleri bu ses kanalından diğer ses kanallarına taşıma yetkisi verir.",
+    category: "Üyelik İzinleri",
   },
 };
 
@@ -689,6 +698,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       canKickMembers: permissions.includes("kick_members"),
       canBanMembers: permissions.includes("ban_members"),
       canCreateInvite: permissions.includes("create_invite"),
+      canMoveMembers: permissions.includes("move_members"),
     };
   }
 
@@ -2088,6 +2098,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
         "manage_nicknames",
         "kick_members",
         "ban_members",
+        "move_members",
       ].some((permission) => hasServerPermission(serverRecord, user.id, permission));
       if (!user || !canModerate) {
         sendJson(response, user ? 403 : 401, { error: "Üye moderasyon bilgilerini görme yetkin yok." });
@@ -2111,6 +2122,65 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
           roles: roles.map(({ id, name, color }) => ({ id, name, color })),
         },
       });
+      return;
+    }
+
+    const memberMoveRoute = pathname.match(/^\/api\/servers\/([\da-f-]{36})\/members\/([\da-f-]{36})\/move$/i);
+    if (memberMoveRoute && request.method === "POST") {
+      const user = getUser(request);
+      if (!user) {
+        sendJson(response, 401, { error: "Üyeleri taşımak için giriş yap." });
+        return;
+      }
+      const serverRecord = store.servers.find((item) => item.id === memberMoveRoute[1]);
+      if (!serverRecord || !hasServerPermission(serverRecord, user.id, "move_members")) {
+        sendJson(response, 403, { error: "Üyeleri taşımak için gerekli sunucu iznin yok." });
+        return;
+      }
+      const targetId = memberMoveRoute[2];
+      const target = store.users.find((item) => item.id === targetId && item.servers.includes(serverRecord.id));
+      if (!target) {
+        sendJson(response, 404, { error: "Sunucu üyesi bulunamadı." });
+        return;
+      }
+      if (target.id === user.id) {
+        sendJson(response, 403, { error: "Kendini taşıyamazsın." });
+        return;
+      }
+      if (target.id === serverRecord.ownerId) {
+        sendJson(response, 403, { error: "Sunucu sahibini taşıyamazsın." });
+        return;
+      }
+      const body = await readJson(request);
+      const channelId = typeof body.channelId === "string" ? body.channelId : "";
+      if (!channelId) {
+        sendJson(response, 400, { error: "Hedef kanal belirtilmedi." });
+        return;
+      }
+      const channel = serverRecord.channels.find((item) => item.id === channelId);
+      if (!channel || channel.type !== "voice") {
+        sendJson(response, 404, { error: "Ses kanalı bulunamadı." });
+        return;
+      }
+      const sourceConnection = Array.from(serverConnections.get(serverRecord.id) || []).find(
+        (connection) => connection.presenceUserId === targetId && connection.presenceKind === "voice"
+      );
+      if (!sourceConnection) {
+        sendJson(response, 400, { error: "Kullanıcı bir ses kanalında değil." });
+        return;
+      }
+      if (sourceConnection.channelId === channelId) {
+        sendJson(response, 400, { error: "Kullanıcı zaten bu kanalda." });
+        return;
+      }
+      if (!hasChannelPermission(serverRecord, channel, targetId, "connect")) {
+        sendJson(response, 403, { error: "Kullanıcının hedef kanala katılma izni yok." });
+        return;
+      }
+      const previousChannelId = sourceConnection.channelId;
+      sourceConnection.channelId = channelId;
+      publishServerMembers(serverRecord.id);
+      sendJson(response, 200, { ok: true, channelId });
       return;
     }
 

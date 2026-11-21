@@ -1125,7 +1125,7 @@ body {
 .dashboard-view .channel-entry { flex-wrap: wrap; }
 .dashboard-view .channel-entry > .channel-button { order: 1; flex: 1 1 0; }
 .dashboard-view .channel-entry > .edit-channel-button { order: 2; }
-.channel-participants { order: 3; flex: 1 1 100%; min-width: 0; padding: 0 8px 4px 12px; }
+.channel-participants { order: 3; flex: 1 1 100%; min-width: 0; padding: 0 8px 4px 12px; position: relative; }
 .channel-participants[hidden] { display: none; }
 .channel-participant { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 3px 0; color: #dbdee1; font-size: 11px; cursor: context-menu; }
 .channel-participant-avatar { width: 20px; height: 20px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: #5865f2; color: #fff; font-size: 9px; font-weight: 600; }
@@ -1357,6 +1357,20 @@ body {
 .member-context-menu button.is-danger:hover,
 .member-context-menu button.is-danger:focus-visible { background: #5b3035; color: #ffb6b8; }
 .member-context-separator { height: 1px; margin: 5px 2px; background: #35363c; }
+
+.server-context-menu { position: fixed; z-index: 10000; width: min(218px, calc(100vw - 16px)); max-height: min(80vh, 560px); overflow-y: auto; padding: 6px; border: 1px solid #3f4148; border-radius: 7px; background: #18191c; box-shadow: 0 12px 32px rgba(0,0,0,.5); }
+.server-context-menu button { width: 100%; min-height: 34px; padding: 7px 9px; border: 0; border-radius: 4px; background: transparent; color: #dbdee1; text-align: left; font: inherit; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+.server-context-menu button:hover,
+.server-context-menu button:focus-visible { outline: 0; background: #404249; color: #fff; }
+.server-context-menu button.danger { color: #ed777a; }
+.server-context-menu button.danger:hover,
+.server-context-menu button.danger:focus-visible { background: #5b3035; color: #ffb6b8; }
+.server-context-menu hr { height: 1px; margin: 5px 2px; border: 0; background: #35363c; }
+.server-context-menu .context-menu-icon { width: 16px; text-align: center; flex-shrink: 0; }
+
+.channel-participant.is-dragging { opacity: 0.5; background: #404249; }
+.channel-participants.is-drop-target { background: rgba(88, 101, 242, 0.15); border-radius: 4px; }
+.channel-participants.is-drop-target::before { content: "↓ Bırak"; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #5865f2; font-size: 12px; font-weight: 600; pointer-events: none; }
 .server-member.is-ignored,
 .channel-participant.is-ignored,
 .participant-card.is-ignored { opacity: .48; }
