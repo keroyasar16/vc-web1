@@ -1729,14 +1729,14 @@ body {
 .vc-window-controls {
   position: fixed;
   top: 8px;
-  right: 8px;
+  right: 140px; /* "Client'ı İndir" butonu için boşluk bırak */
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 2px 4px;
-  background: rgba(255,255,255,.03);
+  background: transparent; /* Şeffaf arka plan */
   border-radius: 8px;
-  border: 1px solid rgba(255,255,255,.05);
+  border: none;
   z-index: 9999;
 }
 .vc-win-btn {
@@ -1747,6 +1747,16 @@ body {
   height: 28px;
   border: 0;
   border-radius: 6px;
+  background: transparent;
+  color: #fff; /* İkonlar beyaz - görünür */
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.vc-win-btn:hover { background: rgba(255,255,255,.12); }
+.vc-win-btn:active { background: rgba(255,255,255,.2); }
+.vc-win-btn:focus-visible { outline: 2px solid #5865f2; outline-offset: 2px; }
+.vc-win-close:hover { background: #da373c; color: #fff; }
+.vc-win-close:active { background: #b32a2e; }
   background: transparent;
   color: #b5bac1;
   cursor: pointer;
