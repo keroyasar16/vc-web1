@@ -56,9 +56,14 @@ const vcWinMax = document.querySelector("#vc-win-max");
 const vcWinClose = document.querySelector("#vc-win-close");
 
 function initWindowControls() {
+  console.log('[VC] initWindowControls called');
+
   // Detect Electron - userAgent is 100% reliable
   const isElectron = /Electron/.test(navigator.userAgent);
+  console.log('[VC] isElectron:', isElectron);
+
   if (!isElectron) {
+    console.log('[VC] Not Electron, skipping window controls');
     return;
   }
 
@@ -68,33 +73,45 @@ function initWindowControls() {
   if (vcWindowControls) {
     vcWindowControls.style.display = 'flex';
     console.log('[VC] Window controls displayed');
+  } else {
+    console.error('[VC] vcWindowControls element NOT FOUND!');
   }
 
   // Hide "Client'ı İndir" button in desktop app
   const downloadBtn = document.querySelector('.vc-client-download');
-  if (downloadBtn) downloadBtn.style.display = 'none';
+  if (downloadBtn) {
+    downloadBtn.style.display = 'none';
+    console.log('[VC] Download button hidden');
+  }
 
   // Try to use the API if available
   if (window.vcDesktop?.window) {
+    console.log('[VC] vcDesktop.window API available');
+
     // Initial maximized state
     window.vcDesktop.window.isMaximized().then((maximized) => {
+      console.log('[VC] isMaximized:', maximized);
       updateMaxButton(maximized);
-    }).catch(() => {});
+    }).catch((e) => console.error('[VC] isMaximized error:', e));
 
     // Listen for state changes
     try {
       const unsubscribe = window.vcDesktop.window.onStateChange(({ maximized }) => {
+        console.log('[VC] window state changed:', maximized);
         updateMaxButton(maximized);
       });
       window.addEventListener('beforeunload', () => unsubscribe());
-    } catch (_) {}
+    } catch (e) {
+      console.error('[VC] onStateChange error:', e);
+    }
 
     // Button handlers
     if (vcWinMin) vcWinMin.addEventListener('click', () => window.vcDesktop.window.minimize());
     if (vcWinMax) vcWinMax.addEventListener('click', () => window.vcDesktop.window.maximize());
     if (vcWinClose) vcWinClose.addEventListener('click', () => window.vcDesktop.window.close());
+    console.log('[VC] Button handlers attached');
   } else {
-    console.warn('[VC] vcDesktop.window API not available, using fallback');
+    console.warn('[VC] vcDesktop.window API not available');
     // Fallback: try to use ipcRenderer if somehow exposed (unlikely with contextIsolation)
     if (vcWinMin) vcWinMin.addEventListener('click', () => window.vcDesktop?.window?.minimize?.());
     if (vcWinMax) vcWinMax.addEventListener('click', () => window.vcDesktop?.window?.maximize?.());
@@ -121,6 +138,8 @@ function tryInitWindowControls(attempt = 0) {
   // Check both API availability and Electron userAgent
   const isElectron = /Electron/.test(navigator.userAgent);
   const hasAPI = !!(window.vcDesktop?.window);
+
+  console.log('[VC] tryInitWindowControls attempt:', attempt, 'isElectron:', isElectron, 'hasAPI:', hasAPI);
 
   if (isElectron) {
     initWindowControls();

@@ -282,6 +282,18 @@ function createWindow() {
       const el = document.getElementById('vc-loading');
       if (el) el.remove();
     `).catch(() => {});
+
+    // Debug: Check Electron environment and API availability
+    mainWindow.webContents.executeJavaScript(`
+      console.log('[VC DEBUG] userAgent:', navigator.userAgent);
+      console.log('[VC DEBUG] isElectron:', /Electron/.test(navigator.userAgent));
+      console.log('[VC DEBUG] vcDesktop:', window.vcDesktop);
+      console.log('[VC DEBUG] vcWindowControls element:', document.getElementById('vc-window-controls'));
+      console.log('[VC DEBUG] vcWinMin:', document.getElementById('vc-win-min'));
+      console.log('[VC DEBUG] vcWinMax:', document.getElementById('vc-win-max'));
+      console.log('[VC DEBUG] vcWinClose:', document.getElementById('vc-win-close'));
+    `).catch((e) => console.error('[VC DEBUG ERROR]', e));
+
     if (!mainWindow.isVisible()) {
       mainWindow.show();
     }
