@@ -61,3 +61,7 @@ temp/
 
 # TypeScript cache
 *.tsbuildinfo
+
+# Duplicate root files (kept in public/)
+app.js
+styles.css
