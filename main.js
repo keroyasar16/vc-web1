@@ -283,16 +283,80 @@ function createWindow() {
       if (el) el.remove();
     `).catch(() => {});
 
-    // Debug: Check Electron environment and API availability
+    // ============================================================
+    // FALLBACK: Window Controls Initialization (works with any UI)
+    // Runs in Electron regardless of remote/local UI version
+    // ============================================================
     mainWindow.webContents.executeJavaScript(`
-      console.log('[VC DEBUG] userAgent:', navigator.userAgent);
-      console.log('[VC DEBUG] isElectron:', /Electron/.test(navigator.userAgent));
-      console.log('[VC DEBUG] vcDesktop:', window.vcDesktop);
-      console.log('[VC DEBUG] vcWindowControls element:', document.getElementById('vc-window-controls'));
-      console.log('[VC DEBUG] vcWinMin:', document.getElementById('vc-win-min'));
-      console.log('[VC DEBUG] vcWinMax:', document.getElementById('vc-win-max'));
-      console.log('[VC DEBUG] vcWinClose:', document.getElementById('vc-win-close'));
-    `).catch((e) => console.error('[VC DEBUG ERROR]', e));
+      (function() {
+        // Only run in Electron
+        if (!/Electron/.test(navigator.userAgent)) return;
+
+        console.log('[VC] Fallback window controls init');
+
+        // Elements
+        const vcWindowControls = document.getElementById('vc-window-controls');
+        const vcWinMin = document.getElementById('vc-win-min');
+        const vcWinMax = document.getElementById('vc-win-max');
+        const vcWinClose = document.getElementById('vc-win-close');
+        const downloadBtn = document.querySelector('.vc-client-download');
+
+        if (!vcWindowControls) {
+          console.warn('[VC] vc-window-controls element not found');
+          return;
+        }
+
+        // Show window controls
+        vcWindowControls.style.display = 'flex';
+        console.log('[VC] Window controls displayed (fallback)');
+
+        // Hide download button in desktop app
+        if (downloadBtn) {
+          downloadBtn.style.display = 'none';
+          console.log('[VC] Download button hidden (fallback)');
+        }
+
+        // Update maximize button icon
+        function updateMaxButton(maximized) {
+          if (!vcWinMax) return;
+          if (maximized) {
+            vcWinMax.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="9" height="9" rx="2"></rect><rect x="12" y="3" width="9" height="9" rx="2"></rect><rect x="3" y="12" width="9" height="9" rx="2"></rect><rect x="12" y="12" width="9" height="9" rx="2"></rect></svg>';
+            vcWinMax.setAttribute('aria-label', 'Küçült');
+            vcWinMax.title = 'Küçült';
+          } else {
+            vcWinMax.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect></svg>';
+            vcWinMax.setAttribute('aria-label', 'Büyüt');
+            vcWinMax.title = 'Büyüt';
+          }
+        }
+
+        // Try to use vcDesktop.window API
+        if (window.vcDesktop?.window) {
+          console.log('[VC] vcDesktop.window API available (fallback)');
+
+          // Initial maximized state
+          window.vcDesktop.window.isMaximized().then((maximized) => {
+            updateMaxButton(maximized);
+          }).catch(() => {});
+
+          // Listen for state changes
+          try {
+            const unsubscribe = window.vcDesktop.window.onStateChange(({ maximized }) => {
+              updateMaxButton(maximized);
+            });
+            window.addEventListener('beforeunload', () => unsubscribe());
+          } catch (_) {}
+
+          // Button handlers
+          if (vcWinMin) vcWinMin.addEventListener('click', () => window.vcDesktop.window.minimize());
+          if (vcWinMax) vcWinMax.addEventListener('click', () => window.vcDesktop.window.maximize());
+          if (vcWinClose) vcWinClose.addEventListener('click', () => window.vcDesktop.window.close());
+          console.log('[VC] Button handlers attached (fallback)');
+        } else {
+          console.warn('[VC] vcDesktop.window API not available (fallback)');
+        }
+      })();
+    `).catch((e) => console.error('[VC] Fallback init error:', e));
 
     if (!mainWindow.isVisible()) {
       mainWindow.show();
