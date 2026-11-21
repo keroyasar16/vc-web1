@@ -57,10 +57,15 @@ const vcWinClose = document.querySelector("#vc-win-close");
 
 function initWindowControls() {
   // Only show in Electron
-  if (!window.vcDesktop?.window) {
+  const isElectron = !!(window.vcDesktop?.window);
+  if (!isElectron) {
     return;
   }
   if (vcWindowControls) vcWindowControls.style.display = 'flex';
+
+  // Hide "Client'ı İndir" button in desktop app
+  const downloadBtn = document.querySelector('.vc-client-download');
+  if (downloadBtn) downloadBtn.style.display = 'none';
 
   // Initial maximized state
   window.vcDesktop.window.isMaximized().then((maximized) => {
@@ -95,10 +100,21 @@ function updateMaxButton(maximized) {
 }
 
 // Initialize when DOM is ready
+function tryInitWindowControls(attempt = 0) {
+  // In Electron, preload might not be ready immediately
+  if (window.vcDesktop?.window) {
+    initWindowControls();
+    return;
+  }
+  if (attempt < 10) {
+    setTimeout(() => tryInitWindowControls(attempt + 1), 100);
+  }
+}
+
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initWindowControls);
+  document.addEventListener('DOMContentLoaded', () => tryInitWindowControls());
 } else {
-  initWindowControls();
+  tryInitWindowControls();
 }
 const serverRolesDialog = document.querySelector("#server-roles-dialog");
 const serverRoleForm = document.querySelector("#server-role-form");
