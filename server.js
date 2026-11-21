@@ -2822,9 +2822,9 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       return;
     }
     if (request.method === "GET" && requestUrl.pathname === "/download-client") {
-      // Redirect to GitHub Releases specific version
+      // Redirect to GitHub Releases specific version (artifact name from electron-builder)
       response.writeHead(302, {
-        Location: "https://github.com/keroyasar16/vc-web1/releases/download/v1.0.0/VC-Setup.exe",
+        Location: "https://github.com/keroyasar16/vc-web1/releases/download/v1.0.0/VC-Setup-1.0.0.exe",
         "Cache-Control": "no-store"
       });
       response.end();
