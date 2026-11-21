@@ -1727,17 +1727,14 @@ body {
 
 /* Custom window controls (Electron title bar) */
 .vc-window-controls {
-  position: fixed;
-  top: 8px;
-  right: 8px; /* Sağ üst köşe, kenardan 8px */
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 2px 4px;
-  background: transparent; /* Şeffaf arka plan */
+  margin-left: 12px; /* Download butonundan ayır */
+  background: transparent;
   border-radius: 8px;
   border: none;
-  z-index: 9999;
 }
 .vc-win-btn {
   display: flex;

@@ -1725,19 +1725,16 @@ body {
 .vc-client-download-workspace { padding:7px 10px; font-size:11px; }
 @media(max-width:640px) { .vc-client-actions { gap:7px; } .vc-client-actions .topbar-note { display:none; } .vc-client-download { padding:8px 10px; font-size:11px; } .vc-client-download-workspace .vc-download-label { display:none; } .vc-client-download-workspace { font-size:16px; padding:5px 9px; } }
 
-/* Custom window controls (Electron title bar) */
+/* Custom window controls (Electron title bar) - Inside topbar */
 .vc-window-controls {
-  position: fixed;
-  top: 8px;
-  right: 8px; /* Sağ üst köşe, kenardan 8px */
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 2px 4px;
-  background: transparent; /* Şeffaf arka plan */
+  margin-left: 12px; /* Download butonundan ayır */
+  background: transparent;
   border-radius: 8px;
   border: none;
-  z-index: 9999;
 }
 .vc-win-btn {
   display: flex;
