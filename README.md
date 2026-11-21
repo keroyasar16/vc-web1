@@ -1,67 +1,168 @@
 # VC
 
-Tarayıcıda çalışan sesli sohbet ve ekran paylaşımı uygulaması. Kullanıcılar isim yazarak misafir olarak oda açabilir/katılabilir ya da hesap oluşturup giriş yaparak kendi sunucularını kurabilir. Sunucularda davet bağlantısıyla katılınabilen ses kanalları bulunur. WebRTC medya bağlantılarını WebSocket sinyal sunucusunu kullanarak tarayıcılar arasında kurar; uygulama medya akışlarını almaz veya kaydetmez.
+Masaüstü uygulaması (Electron) + Web tabanlı sesli sohbet ve ekran paylaşımı uygulaması.
+
+## Özellikler
+
+- **Sesli odalar**: WebRTC ile düşük gecikmeli ses iletimi
+- **Ekran paylaşımı**: Sistem sesi ile birlikte ekran/pencere paylaşımı (masaüstü uygulamasında)
+- **Kamera**: Görüntülü arama desteği
+- **Sunucular/Kanallar**: Discord benzeri yapıda sunucu ve ses kanalları
+- **Arkadaş sistemi**: Arkadaş ekleme, özel mesajlaşma, grup sohbetleri
+- **Otomatik güncelleme**: Electron-updater ile GitHub Releases'tan otomatik .exe güncellemesi
+- **Hibrit mimari**: Varsayılan uzak sunucu (web verisi), isteğe bağlı yerel sunucu
+
+## Mimari
+
+```
+┌─────────────────┐     HTTPS/WSS      ┌──────────────────┐
+│  Masaüstü App   │ ◄─────────────────► │  Uzak Sunucu     │
+│  (Electron)     │   Web verisi       │  (Railway/VPS)   │
+└─────────────────┘                    └──────────────────┘
+        │
+        │ VC_LOCAL=1
+        ▼
+┌─────────────────┐
+│  Yerel Sunucu   │
+│  (localhost)    │
+└─────────────────┘
+```
+
+- **Varsayılan**: Uygulama uzak sunucuya bağlanır → web ile **aynı veritabanı, aynı hesaplar**
+- **Yerel mod**: `VC_LOCAL=1` ile tamamen offline/LAN çalışır
 
 ## Gereksinimler
 
-- Node.js 20 veya üzeri
-- Mikrofonu ve ekran paylaşımını başlatmak için `localhost` ya da HTTPS
-- Farklı ağlardaki kullanıcılar için erişilebilir bir sunucu adresi; HTTPS/WSS önerilir
+- Node.js 20+
+- Windows 10/11 (masaüstü uygulaması için)
+- GitHub hesabı (otomatik güncelleme yayını için)
 
-## Kurulum ve çalıştırma
+## Kurulum ve Geliştirme
 
-```sh
+```bash
+# Bağımlılıkları yükle
 npm install
-npm start
+
+# Geliştirme modu (yerel sunucu + Electron)
+npm run dev
+
+# Sadece yerel sunucu (tarayıcıda test)
+VC_LOCAL=1 npm start
 ```
 
-Ardından `http://localhost:3000` adresini aç. Başka bir port seçmek için `PORT` ortam değişkenini ayarla.
+## Build ve Yayınlama
 
-İlk açılışta e-posta, uygulamada görünecek kullanıcı adı ve en az 8 karakterli şifreyle kayıt olabilir veya e-posta adresinle giriş yapabilirsin. Önceki sürümde oluşturulmuş e-postasız hesaplar kullanıcı adıyla giriş yapmaya devam edebilir. E-posta doğrulaması henüz bulunmaz. Şifreler `scrypt` ile özetlenerek `data/store.json` içinde saklanır. Profil ekranından görünen adını ve biyografini düzenleyebilir, üyelik tarihini görebilirsin. Kullanıcı ayarlarının Şifre ve Güvenlik bölümünde şifreni değiştirebilir, cihaz oturumlarını görüntüleyip kapatabilir ve arkadaşın olmayan kullanıcılardan özel mesaj almayı açıp kapatabilirsin; şifre değişikliği diğer cihazlardaki oturumları sonlandırır. Ses bölümünde mikrofon/hoparlör cihazını seçebilir, ses seviyelerini ayarlayabilir ve mikrofon ile hoparlörü test edebilirsin. Ses tercihleri tarayıcıda saklanır. Hesap sahibi ayrı sunucu panelinden birden fazla sunucu kurabilir, ses kanalları ekleyebilir ve sunucu/oda adlarını düzenleyebilir. Davet bağlantısını alan kullanıcılar hesap açmadan da sunucuya katılabilir. Hesaplar, üyelikler ve oturumlar sunucu yeniden başlatıldığında korunur; açıkça çıkış yapmadıkça tekrar giriş gerekmez. Oturum belirteçlerinin kendisi değil SHA-256 özeti kalıcılaştırılır.
+### 1. İlk Kurulum (Bir Kere)
 
-Sunucu panelindeki davet düğmesi seçili sunucu için yeni bir davet kodu üretip bağlantıyı paylaşır; eski kod geçersiz olur. Sunucu ayarlarından adı ve fotoğrafı (PNG, JPEG veya WebP) değiştirebilir, sunucu şifresi ekleyebilir/değiştirebilir ya da kaldırabilirsin. Büyük fotoğraflar yüklemeden önce otomatik olarak 256 KB sınırına küçültülür. Sunucu şifresi şu an yalnızca ayar olarak saklanır, katılımı kısıtlamaz; sunucu şifreleri `scrypt` ile özetlenir.
+**GitHub Token:**
+1. GitHub → Settings → Developer settings → Personal access tokens → Generate new token (classic)
+2. `repo` kapsamını işaretle → Generate token → Kopyala
+3. PowerShell (Yönetici):
+   ```powershell
+   [Environment]::SetEnvironmentVariable("GH_TOKEN", "ghp_xxxxxxxxxxxx", "User")
+   ```
+   PowerShell'i yeniden başlatın.
 
-## Windows uygulaması (.exe)
+### 2. Güncelleme Yayınlama (Her Sürümde)
 
-Windows'ta Node.js 20 veya üzeri kurulu bir geliştirme bilgisayarında:
+```bash
+# 1. Versiyon artır (patch: 1.0.0 → 1.0.1)
+npm version patch
 
-```sh
-npm install
-npm run build:exe
+# 2. GitHub'a gönder (build + release otomatik)
+git push && git push --tags
+
+# VEYA manuel:
+npm run publish:github
 ```
 
-Oluşturulan dosya `dist/VC.exe` konumundadır. Bu dosya uygulamanın web sunucusunu başlatır; uygulama tarayıcıda çalıştığı için `http://localhost:3000` adresini aç. Hesaplar ve mesajlar, çalıştırılabilir dosyanın yanındaki `dist/data/store.json` dosyasına kaydedilir. Bu `data` klasörünü ve yedeklerini koru; başka bir bilgisayarda dosyayı çalıştırırken klasör yazılabilir olmalıdır. Yeni bir bilgisayarda `.exe`'yi açmak için Node.js gerekmez.
+**Ne olur?**
+- GitHub Actions build alır (5-10 dk)
+- `dist/VC-Setup-x.x.x.exe` Release sayfasına yüklenir
+- Kullanıcılar uygulamayı açtığında "Güncelleme var" uyarısı alır → arka planda indirip kurar
 
-Sol üstteki uygulama simgesi Arkadaşlar ekranını açar; çevrimiçi arkadaşları, tüm arkadaşları ve bekleyen istekleri görüntüleyebilir, kullanıcı adına göre yeni arkadaşlık isteği gönderebilirsin. Arkadaşlıklar ve istekler kalıcı olarak saklanır. Çevrimiçi durumu, kullanıcının kimliği doğrulanmış uygulama, sohbet veya ses bağlantılarından hesaplanır; birden fazla sekme/bağlantı varsa son bağlantı kapanana kadar çevrimiçi görünür. Arkadaş araması ve çevrimiçi/tüm arkadaşlar ile Şimdi Aktif listeleri kişiye tıklayarak kalıcı, gerçek zamanlı özel mesajlaşma açar. Kullanıcı ayarlarında özel mesajları etkinleştirmiş kişilerle arkadaş olmadan da arama sonuçlarından sohbet başlatabilirsin. Gelen özel mesajlar, arkadaşlık istekleri ve sohbet mesajlarında senden bahsedilmesi sol üstteki simgede okunmamış bildirim sayısını gösterir. Sunucu logoları sol şeritte kalır; bir logoya tıkladığında yalnızca o sunucunun odaları gösterilir.
+### 3. Sadece Build (Yayınlamadan)
 
-Sunucu ayarlarından varsayılan izinleri düzenleyebilir; roller oluşturup ada göre arayabilir, rol rengi ve izinlerini değiştirebilir, rolleri üyelere atayabilirsin. Uygulanan rol izinleri sunucu yönetme, kanal yönetme, rol yönetme ve davet oluşturmadır; sunucu sahibi her zaman tüm izinlere sahiptir. Sunucuyu yönetme iznini yalnızca sunucu sahibi verebilir.
-Masaüstünde sunucu listesinin sağ kenarını sürükleyerek genişliğini ayarlayabilirsin; tercih tarayıcıda saklanır. Klavyeyle ayırıcıya odaklanıp sağ/sol ok tuşlarını da kullanabilirsin.
+```bash
+npm run build:exe    # dist/VC-Setup-x.x.x.exe
+npm run build:dir    # dist/win-unpacked/ (portable)
+```
 
-Her sunucuda bir genel sohbet, her ses kanalında da kendine ait ayrı bir metin sohbeti bulunur. Mesajlar gerçek zamanlı iletilir ve her sohbetin son 100 mesajı `data/store.json` içinde saklanır.
-Metin sohbetinde sağdaki Üyeler paneli, sunucu üyelerini çevrimiçi ve çevrimdışı olarak gerçek zamanlı gösterir.
+## Konfigürasyon
 
-Katılımcılar mikrofon erişimini onayladıktan sonra ses kanalına bağlanır; ekran paylaşımı tarayıcının yerel ekran seçicisiyle başlatılır. Ses kontrollerinin yanından kamerayı açabilir; ekran paylaşımı ve kamera için 1080p 60fps, 1080p 30fps veya 720p 30fps kalitesini seçebilirsin. Ses kanalı başına en fazla 12 kişi desteklenir.
-Sesli odada konuşan katılımcıların profil simgesi yeşil bir halkayla vurgulanır; konuşma durunca vurgu söner.
+`main.js` içinde şu değerleri **kendi bilgilerinizle** değiştirin:
 
-## DM'de arama ve grup sohbeti
+```javascript
+// Uzak sunucu URL'niz (web siteniz)
+const REMOTE_URL = 'https://SIZIN-WEB-ADRESINIZ.com';
 
-Özel mesaj ekranının sağ üstünde dört düğme bulunur: sesli arama, görüntülü arama, sabitlenen mesajlar ve kişi ekle. Arama yalnızca arkadaşlar arasında yapılır; karşı taraf kabul ettiğinde `call-<id>` ses odasına girilir, görüntülü aramada kamera odaya girer girmez açılır. Kişi ekle düğmesi 1:1 sohbette seçtiğin arkadaşlarınla yeni bir grup sohbeti kurar (en az 3 kişi), grup sohbetinde ise gruba yeni kişi ekler. Bir grupta en fazla 10 kişi olabilir; yalnızca kendi arkadaşlarını ekleyebilirsin. Grup sohbetinde aynı düğmelerle tüm üyeleri sesli/görüntülü aramaya davet edebilir, sağ üstteki çıkış düğmesiyle gruptan ayrılabilirsin. Grup mesajları da `data/store.json` içinde son 100 mesaj olarak saklanır; grupta son kişi kalırsa grup silinir. Arama ayrı bir oda sayfası açmaz; DM'in üstünde bir panelde görünür (konuşan kişinin avatarı yeşil halkayla vurgulanır, altta mikrofon, kamera, ekran paylaşımı ve kırmızı bitir düğmesi bulunur). Başka bir sohbete geçersen arama sürer, kontroller sol alttaki hesap çubuğuna döner. Gelen sesli aramada çift vuruşlu telefon zili, görüntülü aramada yükselen melodik bir zil çalar; kabul/ret edince ya da 30 saniye sonra durur. Sesler tarayıcıda üretilir, ses dosyası gerekmez. Sabitlenen mesajlar çubuğu artık varsayılan olarak kapalıdır ve sabitlenmiş mesaj sayısını gösteren iğne düğmesiyle açılır.
+// Auto-updater GitHub reposu
+autoUpdater.setFeedURL({
+  provider: 'github',
+  owner: 'GITHUB_KULLANICI_ADINIZ',
+  repo: 'REPO_ADINIZ',
+});
+```
 
-## Ağ notları
+`package.json` içinde:
+```json
+"publish": {
+  "provider": "github",
+  "owner": "GITHUB_KULLANICI_ADINIZ",
+  "repo": "REPO_ADINIZ"
+}
+```
 
-Uygulama WebRTC için genel STUN hizmetini kullanır. İki kullanıcının ağları doğrudan medya bağlantısına izin vermediğinde güvenilir bağlantı için TURN hizmeti eklenip `public/app.js` içindeki `iceServers` ayarı dağıtım ortamına göre yapılandırılmalıdır. İnternetten erişimde HTTPS/WSS kullan. Bu sürümde e-posta doğrulaması, şifre sıfırlama ve sunucu/kanal moderasyon rolleri bulunmaz.
+## Yerel Sunucu Modu (Offline/LAN)
 
-### Başka kişilerin çevrimiçi bağlanması
+Tamamen yerel veri ile çalışmak için:
 
-`.exe` tek başına internet üzerinde barındırma sağlamaz: sunucuyu çalıştıran bilgisayar açık ve internete bağlı kalmalıdır.
+```bash
+# Geliştirme
+VC_LOCAL=1 npm start
 
-1. `VC.exe`'yi sürekli açık kalacak, güvenilir bir Windows bilgisayarda veya Windows sunucusunda çalıştır.
-2. Yalnızca sunucu bilgisayarı `VC.exe`'yi çalıştırır; diğer kişiler `.exe`'yi değil, paylaşacağın web adresini tarayıcılarında açar. Aynı yerel ağda arayüze `http://SUNUCU_YEREL_IP:3000` adresinden ulaşılabilir. Windows Güvenlik Duvarı'nda TCP 3000 için gelen bağlantıya izin ver; internetten erişim için ayrıca yönlendiricide bu portu sunucu bilgisayarına yönlendirmek gerekir.
-3. İnternetten mikrofon/kamera erişimi için HTTPS gerekir. Gerçek kullanıma açarken bir alan adı ve TLS sertifikası ayarla; HTTPS'i destekleyen bir ters vekil (ör. Caddy) üzerinden uygulamanın `localhost:3000` adresine yönlendir. WebSocket bağlantıları için vekilde WebSocket geçişinin etkin olması gerekir. Uygulamayı doğrudan HTTP ile internete açma.
-4. Bazı kullanıcıların ses/video bağlantıları NAT veya güvenlik duvarı nedeniyle kurulamıyorsa kendi TURN hizmetini yapılandır. Uygulama verilerini düzenli yedekle ve sunucuyu güncel tut.
+# Build alınca .exe'ye parametre geçirmek için:
+VC_LOCAL=1 VC.exe
+```
+
+- Veriler: `%APPDATA%\VC\data\store.json` veya yanındaki `data/` klasöründe
+- İnternet gerekmez, LAN'de çalışır
+- Otomatik güncelleme **kapatılır**
+
+## Proje Yapısı
+
+```
+vc-web1/
+├── main.js              # Electron main process (auto-updater, screen picker)
+├── preload.js           # Güvenli IPC köprüsü (vcDesktop API)
+├── server.js            # WebSocket + HTTP sunucusu
+├── package.json
+├── .gitignore
+├── desktop-icons/       # Uygulama simgeleri
+├── public/              # Frontend (tarayıcı/Electron renderer)
+│   ├── index.html
+│   ├── app.js           # Ana uygulama mantığı
+│   ├── styles.css
+│   ├── mobile-nav.js
+│   ├── shortcuts.js
+│   └── desktop-update.js
+├── test/                # Unit testler
+└── data/                # Yerel veritabanı (gitignore'dır)
+```
+
+## Ağ Notları
+
+- **WebRTC**: Varsayılan Google STUN (`stun:stun.l.google.com:19302`)
+- **Production**: TURN servisi ekleyin (`public/app.js` → `iceServers`)
+- **HTTPS/WSS**: İnternetten mikrofon/kamera için zorunlu
+- **Port**: 3000 (değiştirmek için `PORT=3001 npm start`)
 
 ## Test
 
-```sh
+```bash
 npm test
 ```
+
+## Lisans
+
+MIT

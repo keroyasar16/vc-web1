@@ -2,25 +2,67 @@
   "name": "vc",
   "version": "1.0.0",
   "private": true,
-  "description": "Tarayıcı üzerinden sesli oda ve ekran paylaşımı",
+  "description": "Masaüstü uygulaması ile sesli oda ve ekran paylaşımı",
+  "main": "main.js",
   "scripts": {
-    "start": "node server.js",
-    "build:exe": "pkg . --targets node22-win-x64 --output dist/VC.exe",
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build:exe": "electron-builder --win --x64",
+    "build:dir": "electron-builder --win --dir",
+    "publish:github": "electron-builder --win --x64 --publish always",
     "test": "node --test"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "electron-updater": "^6.1.8",
+    "electron-log": "^5.1.0"
   },
   "devDependencies": {
-    "@yao-pkg/pkg": "^6.25.0"
+    "electron": "^32.0.0",
+    "electron-builder": "^24.13.3"
   },
-  "bin": "server.js",
-  "pkg": {
-    "assets": [
-      "public/**/*"
-    ]
+  "build": {
+    "appId": "com.vc.app",
+    "productName": "VC",
+    "icon": "desktop-icons/vc.ico",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "desktop-icons/vc.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "artifactName": "VC-Setup-${version}.exe"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "server.js",
+      "public/**/*",
+      "desktop-icons/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "data",
+        "to": "data",
+        "filter": ["**/*"]
+      }
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "keroyasar16",
+      "repo": "vc-web1"
+    }
   }
 }
