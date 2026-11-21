@@ -2818,7 +2818,7 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
     const requestUrl = new URL(request.url, "http://localhost");
     if (request.method === "GET" && requestUrl.pathname === "/api/desktop-release") {
       const version = String(process.env.VC_CLIENT_VERSION || "1.0.1").trim();
-      sendJson(response, 200, { version: /^\d+\.\d+\.\d+$/.test(version) ? version : null, url: "/download-client" });
+      sendJson(response, 200, { version: /^\d+\.\d+\.\d+$/.test(version) ? version : null, url: "https://github.com/keroyasar16/vc-web1/releases/latest" });
       return;
     }
     if (request.method === "GET" && requestUrl.pathname === "/download-client") {
