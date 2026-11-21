@@ -294,7 +294,7 @@ function createWindow() {
 
         console.log('[VC] Fallback window controls init');
 
-        // Elements
+        // Elements - query NOW
         const vcWindowControls = document.getElementById('vc-window-controls');
         const vcWinMin = document.getElementById('vc-win-min');
         const vcWinMax = document.getElementById('vc-win-max');
