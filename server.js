@@ -2180,6 +2180,15 @@ function createServer({ dataFile = path.join(__dirname, "data", "store.json") } 
       const previousChannelId = sourceConnection.channelId;
       sourceConnection.channelId = channelId;
       publishServerMembers(serverRecord.id);
+      // Notify the moved user's voice connection to switch channels
+      if (sourceConnection.readyState === WebSocket.OPEN) {
+        sourceConnection.send(JSON.stringify({
+          type: "voice-channel-moved",
+          channelId,
+          previousChannelId,
+          serverId: serverRecord.id,
+        }));
+      }
       sendJson(response, 200, { ok: true, channelId });
       return;
     }

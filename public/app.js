@@ -5492,6 +5492,22 @@ function createRoomCode() {
   return `oda-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// Join a specific voice channel by serverId and channelId
+function joinVoiceChannel(serverId, channelId) {
+  const server = servers.get(serverId);
+  const channel = server?.channels.find((c) => c.id === channelId && c.type === "voice");
+  if (!server || !channel) {
+    showToast("Kanal bulunamadı.");
+    return;
+  }
+  currentServer = server;
+  currentChannel = channel;
+  // Update UI to reflect the new channel
+  document.querySelector("#room-title").textContent = channel.name;
+  document.querySelector(".room-eyebrow").textContent = server.name;
+  connectToRoom();
+}
+
 function connectToRoom() {
   if (!voiceActive) return;
   if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) return;
@@ -5556,6 +5572,17 @@ function connectToRoom() {
       if (leftName && voiceActive) {
         playVcCue("otherLeave");
         showToast(`${leftName} odadan ayrıldı`);
+      }
+    } else if (message.type === "voice-channel-moved") {
+      // Server moved this user to a different voice channel
+      console.log("[Voice] Moved to channel:", message.channelId, "from:", message.previousChannelId);
+      if (message.channelId && message.channelId !== currentChannel?.id) {
+        showToast(`Farklı bir kanala taşındınız: ${message.channelId}`);
+        // Leave current room and join the new channel
+        leaveRoom();
+        setTimeout(() => {
+          joinVoiceChannel(message.serverId, message.channelId);
+        }, 100);
       }
     }
   });
