@@ -3119,12 +3119,14 @@ function showServerNavigation(server) {
   serverVoiceParticipants = [];
   serverVoiceParticipantsServerId = server.id;
   renderServerMembers();
+  // Ensure member panel opens (right sidebar with users)
   setMembersPanelVisible(true);
+  // Also ensure channel list renders (middle sidebar)
+  renderServers();
   subscribeToSelectedServerPresence();
   document.querySelector(".workspace-location span:last-child").textContent = server.name;
   document.querySelector("#friends-sidebar-home").classList.remove("is-active");
   window.clearInterval(friendsRefreshTimer);
-  renderServers();
   if (accountUser) loadServerRoster(server);
 }
 
