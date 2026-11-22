@@ -6879,16 +6879,18 @@ function pickScreenSource() {
     // Masaüstü uygulamasında ses paylaşım seçeneği göster
     const isDesktop = !!(window.vcDesktop?.getScreenSources && window.vcDesktop?.selectScreenSource);
     let audioLabel;
+    let audioCheckbox;
     if (isDesktop) {
       audioLabel = document.createElement("label");
       audioLabel.className = "vc-source-audio-option";
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.checked = false;
-      checkbox.addEventListener("change", (e) => { includeAudio = e.target.checked; });
+      audioCheckbox = document.createElement("input");
+      audioCheckbox.type = "checkbox";
+      audioCheckbox.checked = false;
+      audioCheckbox.disabled = true; // Sadece pencere seçildiğinde aktif
+      audioCheckbox.addEventListener("change", (e) => { includeAudio = e.target.checked; });
       const checkboxText = document.createElement("span");
-      checkboxText.textContent = "Sistem sesini de paylaş";
-      audioLabel.append(checkbox, checkboxText);
+      checkboxText.textContent = "Seçilen pencerenin sesini ekle";
+      audioLabel.append(audioCheckbox, checkboxText);
       body.append(audioLabel);
     }
 
@@ -6968,10 +6970,30 @@ function pickScreenSource() {
         item.addEventListener("click", () => {
           selectedId = source.id;
           shareButton.disabled = false;
+          // Ses seçeneğini sadece pencere seçildiğinde aktif et
+          if (audioCheckbox) {
+            const selectedSource = sources.find((s) => s.id === source.id);
+            const isWindow = selectedSource?.type === "window";
+            audioCheckbox.disabled = !isWindow;
+            if (!isWindow) {
+              audioCheckbox.checked = false;
+              includeAudio = false;
+            }
+          }
           render();
         });
         item.addEventListener("dblclick", () => api.close(source.id));
         list.append(item);
+      }
+      // Ses checkbox'ını seçili kaynak türüne göre güncelle
+      if (audioCheckbox) {
+        const selectedSource = sources.find((s) => s.id === selectedId);
+        const isWindow = selectedSource?.type === "window";
+        audioCheckbox.disabled = !isWindow;
+        if (!isWindow) {
+          audioCheckbox.checked = false;
+          includeAudio = false;
+        }
       }
     };
 
