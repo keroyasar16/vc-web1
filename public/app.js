@@ -5505,10 +5505,13 @@ function joinVoiceChannel(serverId, channelId) {
   // Update UI to reflect the new channel
   document.querySelector("#room-title").textContent = channel.name;
   document.querySelector(".room-eyebrow").textContent = server.name;
+  // Ensure voiceActive is true so connectToRoom proceeds
+  voiceActive = true;
   connectToRoom();
 }
 
 function connectToRoom() {
+  console.log("[Voice] connectToRoom called, voiceActive:", voiceActive, "socket:", socket?.readyState);
   if (!voiceActive) return;
   if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) return;
   const previousSocket = socket;
@@ -5575,12 +5578,13 @@ function connectToRoom() {
       }
     } else if (message.type === "voice-channel-moved") {
       // Server moved this user to a different voice channel
-      console.log("[Voice] Moved to channel:", message.channelId, "from:", message.previousChannelId);
+      console.log("[Voice] Moved to channel:", message.channelId, "from:", message.previousChannelId, "serverId:", message.serverId);
       if (message.channelId && message.channelId !== currentChannel?.id) {
         showToast(`Farklı bir kanala taşındınız: ${message.channelId}`);
         // Leave current room and join the new channel
         leaveRoom();
         setTimeout(() => {
+          console.log("[Voice] Joining new channel:", message.channelId);
           joinVoiceChannel(message.serverId, message.channelId);
         }, 100);
       }
