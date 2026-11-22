@@ -6887,14 +6887,17 @@ function pickScreenSource() {
       audioCheckbox.type = "checkbox";
       audioCheckbox.checked = false;
       audioCheckbox.disabled = true; // Sadece pencere seçildiğinde aktif
-      audioCheckbox.addEventListener("change", (e) => { includeAudio = e.target.checked; });
+      audioCheckbox.addEventListener("change", (e) => { includeAudio = e.target.checked; console.log("[ScreenShare] Checkbox changed:", includeAudio); });
       const checkboxText = document.createElement("span");
       checkboxText.textContent = "Seçilen pencerenin sesini ekle";
       audioLabel.append(audioCheckbox, checkboxText);
       body.append(audioLabel);
     }
 
-    const shareButton = vcModalButton("Paylaş", "primary", () => api.close({ id: selectedId, includeAudio }));
+    const shareButton = vcModalButton("Paylaş", "primary", () => {
+      console.log("[ScreenShare] Share clicked, selectedId:", selectedId, "includeAudio:", includeAudio, "audioCheckbox:", audioCheckbox?.checked, "audioCheckbox.disabled:", audioCheckbox?.disabled);
+      api.close({ id: selectedId, includeAudio });
+    });
     shareButton.disabled = true;
     const refreshButton = vcModalButton("", "ghost", () => load());
     refreshButton.innerHTML = `${VC_MODAL_ICONS.refresh}<span>Yenile</span>`;
@@ -6974,6 +6977,7 @@ function pickScreenSource() {
           if (audioCheckbox) {
             const selectedSource = sources.find((s) => s.id === source.id);
             const isWindow = selectedSource?.type === "window";
+            console.log("[ScreenShare] Source selected:", source.id, "type:", selectedSource?.type, "isWindow:", isWindow);
             audioCheckbox.disabled = !isWindow;
             if (!isWindow) {
               audioCheckbox.checked = false;
@@ -6989,6 +6993,7 @@ function pickScreenSource() {
       if (audioCheckbox) {
         const selectedSource = sources.find((s) => s.id === selectedId);
         const isWindow = selectedSource?.type === "window";
+        console.log("[ScreenShare] Render update, selectedId:", selectedId, "isWindow:", isWindow);
         audioCheckbox.disabled = !isWindow;
         if (!isWindow) {
           audioCheckbox.checked = false;
