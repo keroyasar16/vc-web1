@@ -949,7 +949,8 @@ function attachMessageActions(article, message, kind) {
     });
     action("▤", "Sil", async () => { if (await vcConfirm("Bu mesaj kalıcı olarak silinecek.", { title: "Mesaj silinsin mi?", confirmText: "Sil", tone: "danger" })) send("message-delete"); }, true);
     action("📌", messageState[kind].get(message.id)?.pinnedAt ? "Sabitlemeyi kaldır" : "Başa tuttur", () => send("message-pin"));
-    document.body.append(menu);
+    const container = document.body || document.documentElement;
+  if (container) container.append(menu);
     const rect = trigger.getBoundingClientRect();
     const width = menu.offsetWidth;
     const height = menu.offsetHeight;
@@ -3283,7 +3284,8 @@ function showServerContextMenu(server, x, y) {
     }, false, true));
   }
 
-  document.body.append(menu);
+  const container = document.body || document.documentElement;
+  if (container) container.append(menu);
 
   // Close menu on click outside
   const closeMenu = (event) => {
