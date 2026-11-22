@@ -5500,14 +5500,9 @@ function joinVoiceChannel(serverId, channelId) {
     showToast("Kanal bulunamadı.");
     return;
   }
-  currentServer = server;
-  currentChannel = channel;
-  // Update UI to reflect the new channel
-  document.querySelector("#room-title").textContent = channel.name;
-  document.querySelector(".room-eyebrow").textContent = server.name;
-  // Ensure voiceActive is true so connectToRoom proceeds
-  voiceActive = true;
-  connectToRoom();
+  // Use the full enterVoiceRoom flow which handles mic permissions, stream creation, UI updates
+  const name = accountUser?.username || displayName || "Kullanıcı";
+  enterVoiceRoom({ name, server, channel });
 }
 
 function connectToRoom() {
