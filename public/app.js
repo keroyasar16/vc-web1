@@ -3889,6 +3889,7 @@ function renderChannelParticipants(list, server, channel) {
       participant.addEventListener("contextmenu", (event) => {
         event.preventDefault();
         event.stopPropagation();
+        console.log("[ContextMenu] Channel participant right-click", member);
         const target = {
           userId: member.id,
           username: member.username,
@@ -3898,6 +3899,8 @@ function renderChannelParticipants(list, server, channel) {
         };
         showMemberContextMenu(target, event.clientX, event.clientY);
       });
+    } else {
+      console.log("[ContextMenu] No context menu for participant:", member.id, member.id?.startsWith("guest:"), member.id === accountUser?.id);
     }
 
     const avatar = document.createElement("span");
@@ -4666,6 +4669,7 @@ function getMemberContextTarget(element) {
 }
 
 function showMemberContextMenu(target, x, y) {
+  console.log("[ContextMenu] showMemberContextMenu called", target, x, y);
   closeMemberContextMenu();
   const menu = document.createElement("div");
   menu.className = "member-context-menu";
@@ -4901,6 +4905,7 @@ function showMemberContextMenu(target, x, y) {
   if (server?.canBanMembers) {
     addItem("Yasaklı Üyeleri Yönet", () => openBannedMembers(server));
   }
+  console.log("[ContextMenu] Appending menu to body");
   document.body.append(menu);
   // Position at click first, then adjust if off-screen
   requestAnimationFrame(() => {
@@ -5088,17 +5093,22 @@ async function openModeratorView(server, memberId) {
 document.addEventListener("contextmenu", (event) => {
   if (!(event.target instanceof Element)) return;
   const memberElement = event.target.closest(".server-member, .channel-participant, .participant-card");
-  if (!memberElement) return;
+  if (!memberElement) {
+    console.log("[ContextMenu] No matching element found", event.target);
+    return;
+  }
   event.preventDefault();
+  console.log("[ContextMenu] Right-click on", memberElement.className, memberElement);
   try {
     const target = getMemberContextTarget(memberElement);
+    console.log("[ContextMenu] Target:", target);
     // Ensure username is never empty
     if (!target.username) {
       target.username = memberElement.textContent.trim() || "Kullanıcı";
     }
     showMemberContextMenu(target, event.clientX, event.clientY);
   } catch (error) {
-    console.error("Context menu error:", error);
+    console.error("[ContextMenu] Error:", error);
     // Fallback: show basic context menu
     showMemberContextMenu({
       username: memberElement.textContent.trim() || "Kullanıcı",
