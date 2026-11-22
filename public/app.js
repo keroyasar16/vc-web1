@@ -4883,7 +4883,7 @@ function showMemberContextMenu(target, x, y) {
           submenuList.style.display = isOpen ? "block" : "none";
         });
         moveSubmenu.append(moveButton, submenuList);
-        document.querySelector(".member-context-menu").append(moveSubmenu);
+        menu.append(moveSubmenu);
       }
     }
   }
