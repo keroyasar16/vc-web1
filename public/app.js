@@ -4905,8 +4905,13 @@ function showMemberContextMenu(target, x, y) {
   if (server?.canBanMembers) {
     addItem("Yasaklı Üyeleri Yönet", () => openBannedMembers(server));
   }
-  console.log("[ContextMenu] Appending menu to body");
-  document.body.append(menu);
+  console.log("[ContextMenu] Appending menu to body", document.body);
+  const container = document.body || document.documentElement;
+  if (!container) {
+    console.error("[ContextMenu] No document.body or documentElement!");
+    return;
+  }
+  container.append(menu);
   // Position at click first, then adjust if off-screen
   requestAnimationFrame(() => {
     // Initial position at click
