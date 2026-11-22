@@ -2443,9 +2443,10 @@ function applyMemberVolumes() {
   }
 }
 function applyOutputSettings() {
-  const sinkId = audioOutputDevice.value || getAudioPreference("outputDevice");
-  for (const audio of grid.querySelectorAll("audio")) {
-    audio.volume = getAudioVolumePreference("outputVolume", 100) / 100;
+  const sinkId = audioOutputDevice?.value || getAudioPreference("outputDevice");
+  const outputVolume = getAudioVolumePreference("outputVolume", 100) / 100;
+  for (const audio of document.querySelectorAll("audio")) {
+    audio.volume = outputVolume;
     if (!sinkId || audio.dataset.sinkId === sinkId || typeof audio.setSinkId !== "function") continue;
     audio.setSinkId(sinkId).then(() => {
       audio.dataset.sinkId = sinkId;
@@ -2456,6 +2457,18 @@ function applyOutputSettings() {
   }
   applyMemberVolumes();
 }
+
+// Apply saved audio preferences on startup (for global volumes)
+function applySavedAudioPreferences() {
+  const outputVolume = getAudioVolumePreference("outputVolume", 100) / 100;
+  for (const audio of document.querySelectorAll("audio")) {
+    audio.volume = outputVolume;
+  }
+  // Member volumes are applied when participants render via applyMemberVolumes()
+}
+
+// Call on startup to ensure volumes are applied early
+applySavedAudioPreferences();
 
 audioInputDevice.addEventListener("change", async () => {
   saveAudioPreference("inputDevice", audioInputDevice.value);
@@ -5077,7 +5090,24 @@ document.addEventListener("contextmenu", (event) => {
   const memberElement = event.target.closest(".server-member, .channel-participant, .participant-card");
   if (!memberElement) return;
   event.preventDefault();
-  showMemberContextMenu(getMemberContextTarget(memberElement), event.clientX, event.clientY);
+  try {
+    const target = getMemberContextTarget(memberElement);
+    // Ensure username is never empty
+    if (!target.username) {
+      target.username = memberElement.textContent.trim() || "Kullanıcı";
+    }
+    showMemberContextMenu(target, event.clientX, event.clientY);
+  } catch (error) {
+    console.error("Context menu error:", error);
+    // Fallback: show basic context menu
+    showMemberContextMenu({
+      username: memberElement.textContent.trim() || "Kullanıcı",
+      userId: memberElement.dataset.userId,
+      clientId: memberElement.dataset.participantId || memberElement.dataset.participant,
+      server: currentServer,
+      isServerMember: memberElement.dataset.serverMember === "true"
+    }, event.clientX, event.clientY);
+  }
 });
 document.addEventListener("click", (event) => {
   if (!(event.target instanceof Element)) return;

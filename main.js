@@ -294,16 +294,57 @@ function createWindow() {
 
         console.log('[VC] Fallback window controls init');
 
+        // Ensure drag region on title bars
+        const titleBars = document.querySelectorAll('.topbar, .workspace-topbar');
+        titleBars.forEach(bar => {
+          bar.style.webkitAppRegion = 'drag';
+        });
+
         // Elements - query NOW
-        const vcWindowControls = document.getElementById('vc-window-controls');
-        const vcWinMin = document.getElementById('vc-win-min');
-        const vcWinMax = document.getElementById('vc-win-max');
-        const vcWinClose = document.getElementById('vc-win-close');
+        let vcWindowControls = document.getElementById('vc-window-controls');
+        let vcWinMin = document.getElementById('vc-win-min');
+        let vcWinMax = document.getElementById('vc-win-max');
+        let vcWinClose = document.getElementById('vc-win-close');
         const downloadBtn = document.querySelector('.vc-client-download');
 
+        // Create window controls if they don't exist
         if (!vcWindowControls) {
-          console.warn('[VC] vc-window-controls element not found');
-          return;
+          console.log('[VC] Creating window controls element');
+          vcWindowControls = document.createElement('div');
+          vcWindowControls.id = 'vc-window-controls';
+          vcWindowControls.className = 'vc-window-controls';
+          vcWindowControls.style.webkitAppRegion = 'no-drag';
+          vcWindowControls.innerHTML = \`
+            <button id="vc-win-min" class="vc-win-btn" aria-label="Küçült" title="Küçült">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+            <button id="vc-win-max" class="vc-win-btn" aria-label="Büyüt" title="Büyüt">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect></svg>
+            </button>
+            <button id="vc-win-close" class="vc-win-btn vc-win-close" aria-label="Kapat" title="Kapat">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          \`;
+
+          // Insert into the appropriate title bar
+          const workspaceTopbar = document.querySelector('.workspace-topbar');
+          const landingTopbar = document.querySelector('.topbar');
+          const targetTopbar = workspaceTopbar || landingTopbar;
+          if (targetTopbar) {
+            const actions = targetTopbar.querySelector('.workspace-topbar-actions, .vc-client-actions');
+            if (actions) {
+              actions.parentNode.insertBefore(vcWindowControls, actions);
+            } else {
+              targetTopbar.appendChild(vcWindowControls);
+            }
+          } else {
+            document.body.appendChild(vcWindowControls);
+          }
+
+          // Re-query buttons
+          vcWinMin = document.getElementById('vc-win-min');
+          vcWinMax = document.getElementById('vc-win-max');
+          vcWinClose = document.getElementById('vc-win-close');
         }
 
         // Show window controls
@@ -315,6 +356,11 @@ function createWindow() {
           downloadBtn.style.display = 'none';
           console.log('[VC] Download button hidden (fallback)');
         }
+
+        // Ensure buttons have no-drag
+        [vcWinMin, vcWinMax, vcWinClose].forEach(btn => {
+          if (btn) btn.style.webkitAppRegion = 'no-drag';
+        });
 
         // Update maximize button icon
         function updateMaxButton(maximized) {
